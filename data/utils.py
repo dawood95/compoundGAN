@@ -1,3 +1,4 @@
+import dgl
 import torch
 
 from torch.nn import functional as F
@@ -96,6 +97,7 @@ def mol2graph(mol):
     edge_start = [b.GetBeginAtomIdx() for b in bonds]
     edge_end   = [b.GetEndAtomIdx() for b in bonds]
     G.add_edges(edge_start, edge_end)
+    G.add_edges(edge_end, edge_start)
 
     #atoms_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb
     feats = []

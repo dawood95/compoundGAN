@@ -31,14 +31,9 @@ def ZINC_collate(x):
     graphs = []
     atom_feats = []
     bond_feats = []
-
     for g, af, bf in x:
         graphs.append(g)
-        atom_feats.append(af.unsqueeze(0))
-        bond_feats.append(bf.unsqueeze(0))
-
-    atom_feats = torch.cat(atom_feats, 0)
-    bond_feats = torch.cat(bond_feats, 0)
-    graphs     = dgl.batch(graphs)
-
+        atom_feats.append(af)
+        bond_feats.append(bf)
+    graphs = dgl.batch(graphs)
     return graphs, atom_feats, bond_feats
