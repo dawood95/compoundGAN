@@ -25,7 +25,7 @@ def atoms2vec(atoms):
     for atom in atoms:
         # Element
         try: idx = Library.atom_list.index(atom.GetSymbol())
-        except: idx = len(Library.atom_list)
+        except: raise ValueError
         idx = torch.Tensor([idx]).long()
         emb = F.one_hot(idx, len(Library.atom_list)+1)
         atom_emb.append(emb)
@@ -41,8 +41,9 @@ def atoms2vec(atoms):
         electron_emb.append(emb)
 
         # Aromatic
-        idx = torch.Tensor([atom.GetIsAromatic()]).long().unsqueeze(0)
-        aromatic_emb.append(idx)
+        idx = torch.Tensor([atom.GetIsAromatic()]).long()
+        emb = F.one_hot(idx, 2)
+        aromatic_emb.append(emb)
 
         # Chirality
         try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
@@ -60,9 +61,10 @@ def bonds2vec(bonds):
     chirality = []
     for bond in bonds:
         bt = bond.GetBondType()
-        bs = bond.GetStereo()
+        bs = str(bond.GetStereo())
 
-        emb = [bt == Chem.rdchem.BondType.SINGLE,
+        emb = [False,
+               bt == Chem.rdchem.BondType.SINGLE,
                bt == Chem.rdchem.BondType.DOUBLE,
                bt == Chem.rdchem.BondType.TRIPLE,
                bt == Chem.rdchem.BondType.AROMATIC]
@@ -70,10 +72,10 @@ def bonds2vec(bonds):
         bond_emb.append(emb)
 
         emb = torch.Tensor([bond.GetIsConjugated()]).long()
-        conjugated.append(emb)
+        conjugated.append(torch.Tensor([emb == 0, emb == 1]).long())
 
         emb = torch.Tensor([bond.IsInRing()]).long()
-        ring.append(emb)
+        ring.append(torch.Tensor([emb == 0, emb == 1]).long())
 
         emb = [bs=="STEREONONE",
                bs=="STEREOANY",
@@ -106,8 +108,7 @@ def mol2graph(mol):
         f = [af[i] for af in atom_feats]
         f = torch.cat(f, dim=1)
         feats.append(f)
-    feats = torch.cat(feats, 0)
-    G.ndata['feats'] = feats.float()
+    G.ndata['feats'] = torch.cat(feats, 0).float()
 
     #bond_emb, conjugated, ring, chirality
     feats = []
@@ -116,20 +117,38 @@ def mol2graph(mol):
         f = [bf[i] for bf in bond_feats]
         f = torch.cat(f, dim=0)
         feats.append(f.unsqueeze(0))
-    feats = torch.cat(feats, 0)
-    G.edata['feats'] = feats.float()
+    G.edata['feats'] = torch.cat(feats * 2, 0).float()
 
-    bfs_edge = torch.cat(dgl.bfs_edges_generator(G, bfs_root))
-    atom_order = []
-    bond_order = []
-    for edge in bfs_edge:
-        s = bonds[edge].GetBeginAtomIdx()
-        e = bonds[edge].GetEndAtomIdx()
-        if s not in atom_order: atom_order.append(s)
-        if e not in atom_order: atom_order.append(e)
-        bond_order.append(edge.item())
+    # Get BFS node sequence to use as target sequence
+    atom_seq = torch.cat(dgl.bfs_nodes_generator(G, bfs_root))
+    atom_seq = [i.item() for i in atom_seq]
 
-    atom_feats = [torch.cat(af, dim=0)[atom_order] for af in atom_feats]
-    bond_feats = [torch.cat(bf, dim=0)[bond_order] for bf in bond_feats]
+    # Rearrange order according to BFS
+    # Generator will try to generate in this sequence
+    target = []
+    for i in atom_seq:
+        _target = []
+        for af in atom_feats:
+            _target.append(af[i].nonzero()[0, 1].item())
+        target.append(_target)
+    target.append([len(Library.atom_list), 3, 0, 2, 0])
 
-    return G, atom_feats, bond_feats
+    bond_target = []
+    for i in range(len(atom_seq)):
+        _bond_target = []
+        for j in range(i):
+            s = atom_seq[j]
+            e = atom_seq[i]
+            if G.has_edge_between(s, e):
+                ## could be the second set of bonds too, thus modulo
+                bond_id = G.edge_id(s, e)%len(bonds)
+                _target = [bf[bond_id].nonzero()[0] for bf in bond_feats]
+                _target = [x.item() for x in _target]
+                _bond_target.append(_target)
+            else:
+                _bond_target.append([0, 0, 0, 0])
+        bond_target.append(_bond_target)
+    bond_target.append([[0, 0, 0, 0] for _ in range(len(bond_target[-1])+1)])
+
+    G.add_edges(G.nodes(), G.nodes())
+    return G, target, bond_target
