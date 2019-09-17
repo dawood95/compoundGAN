@@ -36,16 +36,15 @@ class MolConv(nn.Module):
         return {'fused_feats': feats}
 
     def forward(self, g, feat):
-        graph = g.local_var()
-
-        norm = torch.pow(graph.in_degrees().float().clamp(min=1), -0.5)
+        norm = torch.pow(g.in_degrees().float().clamp(min=1), -0.5)
         shp = norm.shape + (1,) * (feat.dim() - 1)
         norm = torch.reshape(norm, shp).to(feat.device)
 
         ##feat = feat * norm
-        graph.ndata['h'] = feat
-        graph.update_all(self.message, fn.sum('fused_feats', 'sum_f'))
-        feat = graph.ndata['sum_f']
+        g.ndata['h'] = feat
+        g.update_all(self.message, fn.sum('fused_feats', 'sum_f'))
+        feat = g.ndata['sum_f']
+
         feat = feat * norm
         feat = torch.matmul(feat, self.weight)
         feat = feat * norm
