@@ -32,8 +32,8 @@ class DecoderCell(nn.Module):
             assert(self.hidden[1][l].shape == context.shape)
             self.hidden[1][l] = context
 
-    def detach(self, mask):
-        raise NotImplementedError
+    def detach(self):
+        self.hidden = [h.detach() for h in self.hidden]
         return
 
     def forward(self, x):

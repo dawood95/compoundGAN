@@ -102,6 +102,13 @@ class Generator(nn.Module):
             # Set next node input as current edge state
             x = self.edge_cell.hidden[1][-1]
 
+            '''
+            if i % 10 == 0:
+                x = x.detach()
+                self.node_cell.detach()
+                node_embeddings = [emb.detach() for emb in node_embeddings]
+            '''
+
         pred_loss = node_loss/node_num + edge_loss/edge_num
         return None, pred_loss
 
