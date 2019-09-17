@@ -27,7 +27,7 @@ class Trainer:
         self.train_step = 0
         self.vae_step   = 0
 
-        self.vae_epoch_size = 2000
+        self.vae_epoch_size = 1000
 
     def run(self, num_epoch):
         for i in range(num_epoch):
@@ -119,7 +119,7 @@ class Trainer:
                 }, step=self.vae_step)
                 tqdm.write(
                     'VAE Train [%4d] | KL Loss=[%.5f] | Pred Loss=[%.5f]'%
-                    (i, kl_loss, pred_loss)
+                    (i+1, kl_loss, pred_loss)
                 )
 
             if i == self.vae_epoch_size: break
