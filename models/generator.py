@@ -109,7 +109,7 @@ class Generator(nn.Module):
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
 
-        pred_loss = node_loss/node_num + edge_loss/edge_num
+        pred_loss = node_loss + edge_loss
         return None, pred_loss
 
 
