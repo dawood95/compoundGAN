@@ -27,7 +27,8 @@ class Trainer:
         self.train_step = 0
         self.vae_step   = 0
 
-        self.vae_epoch_size = 1000
+        # 10,000 compounds = 1 epoch
+        self.vae_epoch_size = 1_000
 
     def run(self, num_epoch):
         for i in range(num_epoch):
@@ -92,8 +93,7 @@ class Trainer:
 
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
-            #z = self.enc.reparameterize(mu, logvar)
-            z = mu
+            z = self.enc.reparameterize(mu, logvar)
 
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
@@ -102,7 +102,7 @@ class Trainer:
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss by 1/100
-            loss = 0*kl_loss + pred_loss
+            loss = 0.01*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
             self.gen_optim.zero_grad()

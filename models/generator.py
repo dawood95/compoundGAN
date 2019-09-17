@@ -64,6 +64,11 @@ class Generator(nn.Module):
             for c in self.node_classifiers:
                 node_pred.append(c(node_emb))
 
+            node_y = atom_target[i]
+            for j in range(node_y.shape[1]):
+                node_loss += F.cross_entropy(node_pred[j], node_y[:, j], ignore_index=-1)
+                node_num += 1
+
             if i == 0:
                 node_embeddings.append(node_emb)
                 # might be wrong, maybe concat node output emb ?
@@ -83,10 +88,6 @@ class Generator(nn.Module):
             edge_preds = [torch.cat(ep, 1) for ep in edge_preds]
 
             # Calculate loss
-            node_y = atom_target[i]
-            for j in range(node_y.shape[1]):
-                node_loss += F.cross_entropy(node_pred[j], node_y[:, j], ignore_index=-1)
-                node_num += 1
 
             edge_y = bond_target[i]
             for j in range(edge_y.shape[2]):

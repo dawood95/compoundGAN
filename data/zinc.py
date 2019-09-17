@@ -7,7 +7,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from torch.utils import data
 
-from .utils import mol2graph
+from .utils import mol2graph, Library
 
 class ZINC250K(data.Dataset):
 
