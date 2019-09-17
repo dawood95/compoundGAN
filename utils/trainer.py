@@ -27,6 +27,8 @@ class Trainer:
         self.train_step = 0
         self.vae_step   = 0
 
+        self.vae_epoch_size = 2000
+
     def run(self, num_epoch):
         for i in range(num_epoch):
             # Increment epoch
@@ -79,11 +81,14 @@ class Trainer:
 
         total_kl_loss = 0
         total_pred_loss = 0
-        for G, atom_y, bond_y in tqdm(self.dataloader):
+        pbar = tqdm(enumerate(self.dataloader), total=self.vae_epoch_size)
+        pbar.set_description('VAE Train')
+        for i, (G, atom_y, bond_y) in pbar:
 
             if self.cuda:
-                G.ndata['feats'] = G.ndata['feats'].cuda(non_blocking=True)
-                G.edata['feats'] = G.edata['feats'].cuda(non_blocking=True)
+                G.to(torch.device('cuda:0'))
+                atom_y = atom_y.cuda(non_blocking=True)
+                bond_y = [b.cuda(non_blocking=True) for b in bond_y]
 
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
@@ -112,11 +117,17 @@ class Trainer:
                     'kl_loss': kl_loss.item(),
                     'pred_loss': pred_loss.item()
                 }, step=self.vae_step)
+                tqdm.write(
+                    'VAE Train [%4d] | KL Loss=[%.5f] | Pred Loss=[%.5f]'%
+                    (i, kl_loss, pred_loss)
+                )
+
+            if i == self.vae_epoch_size: break
 
         total_kl_loss /= len(self.dataloader)
         total_pred_loss /= len(self.dataloader)
 
-        print('VAE Train | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
+        print('VAE Train Total | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
               (total_kl_loss, total_pred_loss))
 
         return total_kl_loss, total_pred_loss

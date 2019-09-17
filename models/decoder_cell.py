@@ -7,13 +7,9 @@ class DecoderCell(nn.Module):
     def __init__(self, in_feats, out_feats, hidden_feats, num_layers=4, bias=True):
         super().__init__()
 
-        self.input_fc = nn.Linear(in_feats, hidden_feats, bias)
-
-        self.lstm_layers = nn.ModuleList([])
-        for i in range(num_layers):
-            self.lstm_layers.append(nn.LSTMCell(
-                hidden_feats, hidden_feats, bias=bias
-            ))
+        self.lstm = nn.LSTM(
+            in_feats, hidden_feats, num_layers, bias
+        )
 
         self.output_fc = nn.Linear(hidden_feats, out_feats, bias)
 
@@ -23,31 +19,25 @@ class DecoderCell(nn.Module):
         self.hidden = None
 
     def reset_hidden(self, batch_size):
-        cuda = next(self.input_fc.parameters()).is_cuda
+        cuda = next(self.output_fc.parameters()).is_cuda
         hidden = []
-        for l in range(self.num_layers):
-            _hidden = []
-            for _ in range(2):
-                _hidden.append(torch.zeros(batch_size, self.hidden_feats))
-            _hidden = [h.cuda() if cuda else h for h in _hidden]
-            hidden.append(_hidden)
+        for _ in range(2):
+            hidden.append(torch.zeros(self.num_layers, batch_size, self.hidden_feats))
+        hidden = [h.cuda() if cuda else h for h in hidden]
         self.hidden = hidden
         return
 
     def set_context(self, context):
-        for i in range(self.num_layers):
-            assert(self.hidden[i][1].shape == context.shape)
-            self.hidden[i][1] = context
+        for l in range(self.num_layers):
+            assert(self.hidden[1][l].shape == context.shape)
+            self.hidden[1][l] = context
 
     def detach(self, mask):
         raise NotImplementedError
         return
 
     def forward(self, x):
-        x = F.relu(self.input_fc(x))
-        for i in range(self.num_layers):
-            self.hidden[i] = self.lstm_layers[i](x, self.hidden[i])
-            x = self.hidden[i][0]
-        x = self.output_fc(x)
+        _, self.hidden = self.lstm(x.unsqueeze(0), self.hidden)
+        x = F.relu(self.output_fc(self.hidden[0][-1]))
         return x
 
