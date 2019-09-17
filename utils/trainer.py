@@ -60,7 +60,7 @@ class Trainer:
             if self.scheduler:
                 self.scheduler.step()
 
-    def save(self, acc):
+    def save(self):
         data = {
             'enc_state_dict' : self.enc.state_dict(),
             'gen_state_dict' : self.gen.state_dict(),
@@ -92,7 +92,8 @@ class Trainer:
 
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
-            z = self.enc.reparameterize(mu, logvar)
+            #z = self.enc.reparameterize(mu, logvar)
+            z = mu
 
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
@@ -101,7 +102,7 @@ class Trainer:
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss by 1/100
-            loss = 0.001*kl_loss + pred_loss
+            loss = 0*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
             self.gen_optim.zero_grad()
