@@ -13,8 +13,8 @@ class Generator(nn.Module):
         super().__init__()
 
         node_hidden_size = 256
-        node_emb_size = 128
-        edge_emb_size = 64
+        node_emb_size = 256
+        edge_emb_size = 256
         self.latent_project = nn.Linear(latent_size, node_hidden_size, bias=True)
 
         self.node_cell = DecoderCell(node_hidden_size, node_emb_size, node_hidden_size,
@@ -66,29 +66,29 @@ class Generator(nn.Module):
 
             node_y = atom_target[i]
             for j in range(node_y.shape[1]):
-                node_loss += F.cross_entropy(node_pred[j], node_y[:, j], ignore_index=-1)
+                _node_loss = F.cross_entropy(node_pred[j], node_y[:, j], ignore_index=-1)
+                node_loss += _node_loss
                 node_num += 1
 
             if i == 0:
                 node_embeddings.append(node_emb)
                 # might be wrong, maybe concat node output emb ?
-                x = self.node_cell.hidden[1][-1]
+                x = node_emb##self.node_cell.hidden[1][-1]
                 continue
 
             # Generate edges
             edge_preds = [[], [], [], []]
             self.edge_cell.reset_hidden(batch_size)
-            self.edge_cell.set_context(self.node_cell.hidden[1][-1])
+            self.edge_cell.set_context(self.node_cell.hidden[-1][-1])
             for prev_node_emb in node_embeddings[::-1]:
                 # can speed this up ?
                 _edge_emb = self.edge_cell(prev_node_emb)
                 for j, c in enumerate(self.edge_classifiers):
-                    edge_preds[j].insert(0, c(_edge_emb))
-            edge_preds = [[e.unsqueeze(1) for e in ep] for ep in edge_preds]
+                    edge_preds[j].append(c(_edge_emb))
+            edge_preds = [[e.unsqueeze(1) for e in ep[::-1]] for ep in edge_preds]
             edge_preds = [torch.cat(ep, 1) for ep in edge_preds]
 
             # Calculate loss
-
             edge_y = bond_target[i]
             for j in range(edge_y.shape[2]):
                 target = edge_y[:, :, j].view(-1)
@@ -101,7 +101,7 @@ class Generator(nn.Module):
             node_embeddings.append(node_emb)
 
             # Set next node input as current edge state
-            x = self.edge_cell.hidden[1][-1]
+            x = _edge_emb#self.edge_cell.hidden[1][-1]
 
             '''
             if i % 10 == 0:
@@ -110,7 +110,7 @@ class Generator(nn.Module):
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
 
-        pred_loss = node_loss + edge_loss
+        pred_loss = node_loss/node_num + edge_loss/edge_num
         return None, pred_loss
 
 
