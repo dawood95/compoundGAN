@@ -101,8 +101,8 @@ class Trainer:
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-            # Weighting KL loss by 1/100
-            e_max_10 = min(self.epoch - 1, 10)
+            # Weighting KL loss 
+            e_max_10 = min(self.epoch - 10, 10)
             loss = 1e-7*e_max_10*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
