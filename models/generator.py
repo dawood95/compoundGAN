@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from time import time
 from .decoder_cell import DecoderCell
 
 class Generator(nn.Module):
@@ -30,10 +29,69 @@ class Generator(nn.Module):
         for feat_size in edge_feats:
             self.edge_classifiers.append(nn.Linear(edge_emb_size, feat_size, bias))
 
+        self.end_node = node_feats[0]-1
         self.node_inp_size = node_hidden_size
 
     def forward(self, z, max_nodes=500):
-        raise NotImplementedError
+        batch_size = z.shape[0]
+        assert(batch_size == 1)
+        
+        z = self.latent_project(z)
+
+        self.node_cell.reset_hidden(batch_size)
+        self.node_cell.set_context(z)
+
+        x = torch.zeros((batch_size, self.node_inp_size))
+        if z.is_cuda: x = x.cuda()
+
+        node_list = []
+        edge_list = []
+        node_embs = []
+        for i in range(max_nodes):
+            node_pred = []
+            node_emb  = self.node_cell(x)
+            for c in self.node_classifiers:
+                pred = c(node_emb)
+                pred = F.softmax(pred, 1)
+                prob, idx = torch.max(pred, 1)
+                node_pred.append((idx, prob))
+
+            if node_pred[0][0] == self.end_node:
+                break
+
+            if i == 0:
+                node_embs.append(node_emb)
+                x = node_emb
+
+                node_list.append(node_pred)
+                edge_list.append([])
+                continue
+
+            edge_preds = []
+            self.edge_cell.reset_hidden(batch_size)
+            self.edge_cell.set_context(self.node_cell.hidden[-1][-1])
+            for prev_node_emb in node_embs[::-1]:
+                edge_pred = []
+                _edge_emb = self.edge_cell(prev_node_emb)
+                for j, c in enumerate(self.edge_classifiers):
+                    pred = c(_edge_emb)
+                    pred = F.softmax(pred, 1)
+                    prob, idx = torch.max(pred, 1)
+                    edge_pred.append((idx, prob))
+                edge_preds.append(edge_pred)
+
+            no_edges = torch.cat([(pred[0][0] == 0) for pred in edge_preds],0)
+            no_edges = no_edges.all()
+            if no_edges: break
+
+            edge_preds = edge_preds[::-1]
+
+            node_embs.append(node_emb)
+            x = _edge_emb
+            node_list.append(node_pred)
+            edge_list.append(edge_preds)
+            
+        return node_list, edge_list
 
     def calc_loss(self, z, atom_target, bond_target):
         max_seq_length = atom_target.shape[0]
@@ -54,8 +112,7 @@ class Generator(nn.Module):
 
         node_embeddings = []
         x = torch.zeros((batch_size, self.node_inp_size))
-        if next(self.latent_project.parameters()).is_cuda:
-            x = x.cuda()
+        if z.is_cuda: x = x.cuda()
 
         for i in range(max_seq_length):
             # Generate a node
