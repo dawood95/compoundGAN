@@ -52,8 +52,8 @@ dataloader = DataLoader(dataset,
                         drop_last=True)
 
 # Model
-enc = Encoder(59, 13, 128)
-gen = Generator(128, [44, 7, 3, 3, 2], [5, 2, 2, 4])
+enc = Encoder(59, 13, 256)
+gen = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
 dis = Discriminator(59, 13, 128)
 
 # Optimizer

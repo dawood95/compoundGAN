@@ -103,7 +103,7 @@ class Trainer:
 
             # Weighting KL loss by 1/100
             e_max_10 = min(self.epoch - 1, 10)
-            loss = 0.001*e_max_10*kl_loss + pred_loss
+            loss = 1e-7*e_max_10*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
             self.gen_optim.zero_grad()
@@ -115,7 +115,7 @@ class Trainer:
             total_kl_loss += kl_loss.item()
             total_pred_loss += pred_loss.item()
 
-            if self.vae_step % 10 == 0:
+            if (i+1) % 10 == 0:
                 self.logger.experiment.log_metrics({
                     'kl_loss': kl_loss.item(),
                     'pred_loss': pred_loss.item()
@@ -127,8 +127,8 @@ class Trainer:
 
             if i == self.vae_epoch_size: break
 
-        total_kl_loss /= len(self.dataloader)
-        total_pred_loss /= len(self.dataloader)
+        total_kl_loss /= self.vae_epoch_size
+        total_pred_loss /= self.vae_epoch_size
 
         print('VAE Train Total | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
               (total_kl_loss, total_pred_loss))

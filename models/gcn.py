@@ -74,8 +74,10 @@ class GCN(nn.Module):
 
         # Conv might not neccessarily cover entire graph.
         # Look at all embbedding to form a 'compound' embedding
+        #self.pool = dgl_nn.glob.AvgPooling()#
         self.pool = dgl_nn.glob.Set2Set(feats, 2, 2)
-        self.fc   = nn.Linear(feats * 2, out_feats, bias=bias)
+        feats = feats * 2
+        self.fc   = nn.Linear(feats, out_feats, bias=bias)
 
     def forward(self, G):
         feat = G.ndata['feats']

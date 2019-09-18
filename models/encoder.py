@@ -9,7 +9,7 @@ class Encoder(nn.Module):
     def __init__(self, node_feats, edge_feats, latent_feats, bias=True):
         super().__init__()
 
-        self.gcn = GCN(node_feats, edge_feats, 256, [64, 128, 128], bias)
+        self.gcn = GCN(node_feats, edge_feats, 256, [128, 128, 128, 256], bias)
 
         self.mu_fc     = nn.Linear(256, latent_feats, bias)
         self.logvar_fc = nn.Linear(256, latent_feats, bias)
