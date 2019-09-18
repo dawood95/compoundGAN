@@ -20,10 +20,11 @@ class Encoder(nn.Module):
         logvar_x = self.logvar_fc(feat)
         return mu_x, logvar_x
 
-    def reparameterize(self, mu, logvar):
+    def reparameterize(self, mu, logvar, no_noise=False):
         std = torch.exp(0.5*logvar)
         eps = torch.randn_like(std)
-        return mu + eps*std
+        if not no_noise: std = std * eps
+        return mu + std
 
 class Discriminator(nn.Module):
 

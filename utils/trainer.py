@@ -93,7 +93,7 @@ class Trainer:
 
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
-            z = self.enc.reparameterize(mu, logvar)
+            z = self.enc.reparameterize(mu, logvar, no_noise=self.epoch < 5)
 
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
@@ -101,8 +101,9 @@ class Trainer:
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-            # Weighting KL loss 
-            e_max_10 = min(self.epoch - 10, 10)
+            # Weighting KL loss
+            e_max_10 = min(self.epoch - 5, 10)
+            e_max_10 = max(0, e_max_10)
             loss = 1e-7*e_max_10*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
