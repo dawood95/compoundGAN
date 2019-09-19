@@ -11,26 +11,22 @@ class Generator(nn.Module):
     def __init__(self, latent_size, node_feats, edge_feats, num_layers=4, bias=True):
         super().__init__()
 
-        node_hidden_size = 256
-        node_emb_size = 256
-        edge_emb_size = 256
-        self.latent_project = nn.Linear(latent_size, node_hidden_size, bias=True)
+        hidden_size = 256
+        self.latent_project = nn.Linear(latent_size, hidden_size, bias=True)
 
-        self.node_cell = DecoderCell(node_hidden_size, node_emb_size, node_hidden_size,
-                                     num_layers, bias)
-        self.edge_cell = DecoderCell(node_emb_size, edge_emb_size, node_hidden_size,
-                                     num_layers, bias)
+        self.node_cell = DecoderCell(hidden_size, hidden_size, num_layers, bias)
+        self.edge_cell = DecoderCell(hidden_size, hidden_size, num_layers, bias)
 
         self.node_classifiers = nn.ModuleList()
         for feat_size in node_feats:
-            self.node_classifiers.append(nn.Linear(node_emb_size, feat_size, bias))
+            self.node_classifiers.append(nn.Linear(hidden_size, feat_size, bias))
 
         self.edge_classifiers = nn.ModuleList()
         for feat_size in edge_feats:
-            self.edge_classifiers.append(nn.Linear(edge_emb_size, feat_size, bias))
+            self.edge_classifiers.append(nn.Linear(hidden_size, feat_size, bias))
 
         self.end_node = node_feats[0]-1
-        self.node_inp_size = node_hidden_size
+        self.node_inp_size = hidden_size
 
     def forward(self, z, max_nodes=500):
         batch_size = z.shape[0]
@@ -49,7 +45,7 @@ class Generator(nn.Module):
         node_embs = []
         for i in range(max_nodes):
             node_pred = []
-            node_emb  = self.node_cell(x)
+            node_emb  = self.node_cell.forward_unit(x)
             for c in self.node_classifiers:
                 pred = c(node_emb)
                 pred = F.softmax(pred, 1)
@@ -58,7 +54,7 @@ class Generator(nn.Module):
 
             if node_pred[0][0] == self.end_node:
                 break
-
+            
             if i == 0:
                 node_embs.append(node_emb)
                 x = node_emb
@@ -117,7 +113,7 @@ class Generator(nn.Module):
         for i in range(max_seq_length):
             # Generate a node
             node_pred = []
-            node_emb = self.node_cell(x)
+            node_emb = self.node_cell.forward_unit(x)
             for c in self.node_classifiers:
                 node_pred.append(c(node_emb))
 
@@ -136,14 +132,25 @@ class Generator(nn.Module):
             # Generate edges
             edge_preds = [[], [], [], []]
             self.edge_cell.reset_hidden(batch_size)
-            self.edge_cell.set_context(self.node_cell.hidden[-1][-1])
+            self.edge_cell.hidden = self.node_cell.hidden
+            #self.edge_cell.set_context(self.node_cell.hidden[-1]) 
+
+            edge_inp = [prev_node_emb.unsqueeze(0) for prev_node_emb in node_embeddings[::-1]]
+            edge_inp = torch.cat(edge_inp, 0)
+            edge_emb = self.edge_cell.forward_seq(edge_inp)
+            for _edge_emb in edge_emb:
+                for j, c in enumerate(self.edge_classifiers):
+                    edge_preds[j].append(c(_edge_emb).unsqueeze(1))
+
+            '''
             for prev_node_emb in node_embeddings[::-1]:
                 # can speed this up ?
                 _edge_emb = self.edge_cell(prev_node_emb)
                 for j, c in enumerate(self.edge_classifiers):
                     edge_preds[j].append(c(_edge_emb))
-            edge_preds = [[e.unsqueeze(1) for e in ep[::-1]] for ep in edge_preds]
-            edge_preds = [torch.cat(ep, 1) for ep in edge_preds]
+            edge_preds = [[e.unsqueeze(1) for e in ep] for ep in edge_preds]
+            '''
+            edge_preds = [torch.cat(ep[::-1], 1) for ep in edge_preds]
 
             # Calculate loss
             edge_y = bond_target[i]
@@ -166,8 +173,8 @@ class Generator(nn.Module):
                 self.node_cell.detach()
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
-
-        pred_loss = node_loss/node_num + edge_loss/edge_num
+            
+        pred_loss = node_loss + edge_loss
         return None, pred_loss
 
 

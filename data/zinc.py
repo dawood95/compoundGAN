@@ -15,13 +15,14 @@ class ZINC250K(data.Dataset):
         super().__init__()
         data_file = Path(data_file).as_posix()
         data = pd.read_csv(data_file)
-        data = data['smiles']
+        data = list(data['smiles'])
         self.data = data
 
     def __getitem__(self, idx):
         smiles = self.data[idx]
         mol = Chem.MolFromSmiles(smiles)
         G, atom_feats, bond_feats = mol2graph(mol)
+        del mol
         return G, atom_feats, bond_feats
 
     def __len__(self):
@@ -54,7 +55,9 @@ def ZINC_collate(x):
         for b in range(len(atom_feats)):
             if mask[b, i] == 1:
                 atom_targets[i, b, :] = torch.Tensor(atom_feats[b][i])
-
+            else:
+                atom_targets[i, b, :] = torch.Tensor([len(Library.atom_list), 3, 0, 2, 0])
+                
     bond_target = [[],]*mask.shape[1]
     for i in range(mask.shape[1]):
         t = []
@@ -70,8 +73,10 @@ def ZINC_collate(x):
             break
         for j in range(len(t)):
             if t[j] == None:
-                t[j] = [[-1,-1,-1,-1],]*_len
+                t[j] = [[0,0,0,0],]*_len
         bond_target[i] = t
     bond_target = [torch.Tensor(b).long() for b in bond_target]
 
+    del mask
+    
     return graphs, atom_targets.long(), bond_target

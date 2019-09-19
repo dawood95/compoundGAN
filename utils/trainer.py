@@ -85,7 +85,7 @@ class Trainer:
         pbar = tqdm(enumerate(self.dataloader), total=self.vae_epoch_size)
         pbar.set_description('VAE Train')
         for i, (G, atom_y, bond_y) in pbar:
-
+            
             if self.cuda:
                 G.to(torch.device('cuda:0'))
                 atom_y = atom_y.cuda(non_blocking=True)
@@ -93,7 +93,7 @@ class Trainer:
 
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
-            z = self.enc.reparameterize(mu, logvar, no_noise=self.epoch < 5)
+            z = self.enc.reparameterize(mu, logvar, no_noise=False)
 
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
@@ -102,34 +102,117 @@ class Trainer:
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss
-            e_max_10 = min(self.epoch - 5, 10)
+            e_max_10 = min(self.epoch, 10)
             e_max_10 = max(0, e_max_10)
-            loss = 1e-7*e_max_10*kl_loss + pred_loss
+            e_max_10 = 1e-2
+            loss = e_max_10*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
             self.gen_optim.zero_grad()
             loss.backward()
+
+            # clip gradients
+            torch.nn.utils.clip_grad_norm_(self.gen.node_cell.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.gen.node_classifiers.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.gen.edge_cell.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.gen.edge_classifiers.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.enc.parameters(), 1)
+
+            '''
+            total_norm = 0
+            for p in self.gen.node_cell.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'node')
+
+            total_norm = 0
+            for p in self.gen.node_classifiers.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'node_cls')
+
+            total_norm = 0
+            for p in self.gen.edge_cell.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'edge')
+
+            total_norm = 0
+            for p in self.gen.edge_classifiers.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'edge_cls')
+            
+            total_norm = 0
+            for p in self.enc.mu_fc.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'mu_fc')
+
+            total_norm = 0
+            for p in self.enc.logvar_fc.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'logvar_fc')
+
+            total_norm = 0
+            for p in self.enc.gcn.layers.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'gcn layers')
+
+            total_norm = 0
+            for p in self.enc.gcn.pool.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'pool')
+
+            total_norm = 0
+            for p in self.enc.gcn.fc.parameters():
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+            print(total_norm, 'gcn fc')
+            '''
+            
             self.enc_optim.step()
             self.gen_optim.step()
 
             self.vae_step += 1
-            total_kl_loss += kl_loss.item()
-            total_pred_loss += pred_loss.item()
+
+            kl_loss = float(kl_loss.item())
+            pred_loss = float(pred_loss.item())
+
+            total_kl_loss += kl_loss
+            total_pred_loss += pred_loss
 
             if (i+1) % 10 == 0:
                 self.logger.experiment.log_metrics({
-                    'kl_loss': kl_loss.item(),
-                    'pred_loss': pred_loss.item()
+                    'kl_loss': kl_loss,
+                    'pred_loss': pred_loss
                 }, step=self.vae_step)
                 tqdm.write(
                     'VAE Train [%4d] | KL Loss=[%.5f] | Pred Loss=[%.5f]'%
                     (i+1, kl_loss, pred_loss)
                 )
 
+            del mu, logvar, z, G_pred, \
+                pred_loss, kl_loss, loss
+            
             if i == self.vae_epoch_size: break
 
-        total_kl_loss /= self.vae_epoch_size
-        total_pred_loss /= self.vae_epoch_size
+        del pbar
+        
+        total_kl_loss /= i+1#self.vae_epoch_size
+        total_pred_loss /= i+1#self.vae_epoch_size
 
         print('VAE Train Total | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
               (total_kl_loss, total_pred_loss))
