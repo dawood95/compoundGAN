@@ -1,5 +1,6 @@
 import dgl
 import torch
+import numpy as np
 
 from torch.nn import functional as F
 from rdkit import Chem
@@ -151,4 +152,8 @@ def mol2graph(mol):
     bond_target.append([[0, 0, 0, 0] for _ in range(len(bond_target[-1])+1)])
 
     G.add_edges(G.nodes(), G.nodes())
+
+    target = np.array(target)
+    bond_target = np.array(bond_target)
+    
     return G, target, bond_target

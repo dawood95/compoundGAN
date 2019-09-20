@@ -155,7 +155,7 @@ class Generator(nn.Module):
             # Calculate loss
             edge_y = bond_target[i]
             for j in range(edge_y.shape[2]):
-                target = edge_y[:, :, j].view(-1)
+                target = edge_y[:, :len(edge_emb), j].contiguous().view(-1)
                 pred = edge_preds[j].view(-1, edge_preds[j].shape[-1])
                 edge_loss += F.cross_entropy(pred, target,
                                              ignore_index=-1)
@@ -173,7 +173,7 @@ class Generator(nn.Module):
                 self.node_cell.detach()
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
-            
+
         pred_loss = node_loss + edge_loss
         return None, pred_loss
 

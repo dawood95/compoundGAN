@@ -1,6 +1,8 @@
 import dgl
+import os
 import torch
 import pandas as pd
+import numpy as np
 
 from pathlib import Path
 from rdkit import Chem
@@ -22,13 +24,13 @@ class ZINC250K(data.Dataset):
         smiles = self.data[idx]
         mol = Chem.MolFromSmiles(smiles)
         G, atom_feats, bond_feats = mol2graph(mol)
-        del mol
         return G, atom_feats, bond_feats
 
     def __len__(self):
         return len(self.data)
 
 def ZINC_collate(x):
+    #return None, None, None
     graphs = []
     atom_feats = []
     bond_feats = []
@@ -57,7 +59,17 @@ def ZINC_collate(x):
                 atom_targets[i, b, :] = torch.Tensor(atom_feats[b][i])
             else:
                 atom_targets[i, b, :] = torch.Tensor([len(Library.atom_list), 3, 0, 2, 0])
-                
+
+    bond_target = torch.zeros((mask.shape[1], mask.shape[0], max_seq_len, 4))
+    # not the most efficient, but whatever
+    for i in range(mask.shape[1]):
+        for b in range(mask.shape[0]):
+            if i >= len(bond_feats[b]): continue
+            feat = bond_feats[b][i]
+            if len(feat) == 0: continue
+            bond_target[i, b, :len(feat)] = torch.Tensor(bond_feats[b][i])
+
+    '''
     bond_target = [[],]*mask.shape[1]
     for i in range(mask.shape[1]):
         t = []
@@ -76,7 +88,6 @@ def ZINC_collate(x):
                 t[j] = [[0,0,0,0],]*_len
         bond_target[i] = t
     bond_target = [torch.Tensor(b).long() for b in bond_target]
+    '''
 
-    del mask
-    
-    return graphs, atom_targets.long(), bond_target
+    return graphs, atom_targets.long(), bond_target.long()

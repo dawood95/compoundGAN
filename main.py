@@ -5,6 +5,7 @@ import random
 import comet_ml
 import torch
 
+from copy import deepcopy
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler, Adam
 
@@ -32,7 +33,7 @@ parser.add_argument('--comment', type=str, default='')
 
 parser.add_argument('--seed', type=int, default=0)
 
-torch.multiprocessing.set_sharing_strategy('file_system')
+#torch.multiprocessing.set_sharing_strategy('file_system')
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -46,9 +47,24 @@ if __name__ == "__main__":
 
     # Dataloader
     dataset = ZINC250K(args.data_file)
-    dataloader = DataLoader(dataset,
+
+    train_dataset = dataset
+    val_dataset   = deepcopy(dataset)
+    split_len     = int(len(train_dataset)*0.8)
+    train_dataset.data = train_dataset.data[:split_len]
+    val_dataset.data   = val_dataset.data[split_len:]
+    
+    train_loader = DataLoader(train_dataset,
                             batch_size=args.batch_size,
                             shuffle=True,
+                            num_workers=args.num_workers,
+                            collate_fn=ZINC_collate,
+                            pin_memory=args.cuda,
+                            drop_last=True)
+
+    val_loader = DataLoader(val_dataset,
+                            batch_size=args.batch_size,
+                            shuffle=False,
                             num_workers=args.num_workers,
                             collate_fn=ZINC_collate,
                             pin_memory=args.cuda,
@@ -82,8 +98,9 @@ if __name__ == "__main__":
     logger  = Logger(args.log_root, PROJECT_NAME, repo.commit().hexsha, args.comment, disable)
 
     # Trainer
-    model     = [enc, gen ,dis]
-    optimizer = [enc_optimizer, gen_optimizer, dis_optimizer]
+    model      = [enc, gen ,dis]
+    optimizer  = [enc_optimizer, gen_optimizer, dis_optimizer]
+    dataloader = [train_loader, val_loader]
     trainer = Trainer(dataloader, model, optimizer, None, logger, args.cuda)
     trainer.run(args.epoch)
     
