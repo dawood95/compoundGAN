@@ -49,7 +49,7 @@ class Generator(nn.Module):
         #self.edge_classifiers.apply(init_weights)
 
     def forward(self, z, max_nodes=500):
-        raise NotImplementedError # Fix code
+
         batch_size = z.shape[0]
         assert(batch_size == 1)
 
@@ -58,15 +58,21 @@ class Generator(nn.Module):
         self.node_celli.reset_hidden(batch_size)
         self.node_celli.set_context(z)
 
-        x = torch.zeros((batch_size, self.node_inp_size))
-        if z.is_cuda: x = x.cuda()
-
         node_list = []
         edge_list = []
-        node_embs = []
+
+        node_embeddings = []
         for i in range(max_nodes):
-            node_pred = []
+
+            if i == 0:
+                x = torch.zeros((batch_size, self.node_inp_size))
+                if z.is_cuda: x = x.cuda()
+            else:
+                x = node_embeddings[-1]    
+
             node_emb  = self.node_celli.forward_unit(x)
+
+            node_pred = []
             for c in self.node_classifiers:
                 pred = c(node_emb)
                 pred = F.softmax(pred, 1)
@@ -76,10 +82,15 @@ class Generator(nn.Module):
             if node_pred[0][0] == self.end_node:
                 break
 
+            node_emb = []
+            for j, emb_size in enumerate(self.one_hot_sizes):
+                emb = F.one_hot(node_pred[j][0], emb_size)
+                node_emb.append(emb)
+            node_emb = torch.cat(node_emb, -1).float()
+            if z.is_cuda: node_emb = node_emb.cuda()
+            node_embeddings.append(node_emb)
+            
             if i == 0:
-                node_embs.append(node_emb)
-                x = node_emb
-
                 node_list.append(node_pred)
                 edge_list.append([])
                 continue
@@ -88,24 +99,26 @@ class Generator(nn.Module):
             self.edge_celli.reset_hidden(batch_size)
             self.edge_celli.hidden = self.node_celli.hidden
 
-            for prev_node_emb in node_embs[::-1]:
+            edge_inp = [prev_nemb.unsqueeze(0) for prev_nemb in node_embeddings[::-1]]
+            edge_inp = torch.cat(edge_inp, 0)
+            edge_emb = self.edge_celli.forward_seq(edge_inp)
+            for _edge_emb in edge_emb:
                 edge_pred = []
-                _edge_emb = self.edge_celli.forward_unit(prev_node_emb)
                 for j, c in enumerate(self.edge_classifiers):
                     pred = c(_edge_emb)
                     pred = F.softmax(pred, 1)
                     prob, idx = torch.max(pred, 1)
                     edge_pred.append((idx, prob))
                 edge_preds.append(edge_pred)
-
+            edge_preds = edge_preds[::-1]
+            
             no_edges = torch.cat([(pred[0][0] == 0) for pred in edge_preds],0)
             no_edges = no_edges.all()
             if no_edges: break
 
-            edge_preds = edge_preds[::-1]
-
-            node_embs.append(node_emb)
-            x = _edge_emb
+            self.node_celli.reset_hidden(batch_size)
+            self.node_celli.hidden = self.edge_celli.hidden
+            
             node_list.append(node_pred)
             edge_list.append(edge_preds)
 
