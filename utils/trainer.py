@@ -15,7 +15,7 @@ class Trainer:
 
         self.train_datagen = self.load_data(self.train_loader)
         self.val_datagen   = self.load_data(self.val_loader)
-        
+
         self.enc = model[0]
         self.gen = model[1]
         self.dis = model[2]
@@ -39,7 +39,7 @@ class Trainer:
         while True:
             for data in dataloader:
                 yield data
-        
+
     def run(self, num_epoch):
         for i in range(num_epoch):
             # Increment epoch
@@ -53,7 +53,7 @@ class Trainer:
                     'kl': kl_loss,
                     'pred': pred_loss
                 }, prefix='VAE_total', step=(self.epoch))
-                
+
             with self.logger.experiment.validate():
                 kl_loss, pred_loss = self.val_vae()
                 self.logger.experiment.log_metrics({
@@ -85,48 +85,45 @@ class Trainer:
 
         total_kl_loss = 0
         total_pred_loss = 0
-        
+
         pbar = tqdm(range(self.vae_epoch_steps))
         pbar.set_description('VAE Train')
-        
+
         for i in pbar:
             G, atom_y, bond_y = next(self.train_datagen)
             if self.cuda:
                 G.to(torch.device('cuda:0'))
                 atom_y = atom_y.cuda(non_blocking=True)
-                bond_y = bond_y.cuda(non_blocking=True)                
-            
+                bond_y = bond_y.cuda(non_blocking=True)
+
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
-            z = self.enc.reparameterize(mu, logvar, no_noise=False)
-            
+            z = self.enc.reparameterize(mu, logvar)
+
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
-        
+                                                   #3*int(np.ceil(self.epoch/2)))
+
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            kl_loss = kl_loss / z.shape[-1]
 
             # Weighting KL loss
-            e_max_10 = min(self.epoch, 10)
-            e_max_10 = max(0, e_max_10)
-            e_max_10 = 1e-2
-            loss = e_max_10*kl_loss + pred_loss
+            kl_factor = 1e-3
+            loss = kl_factor*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
             self.gen_optim.zero_grad()
 
             loss.backward()
-            
+
             # clip gradients
-            torch.nn.utils.clip_grad_norm_(self.gen.node_cell.parameters(), 1)
-            torch.nn.utils.clip_grad_norm_(self.gen.node_classifiers.parameters(), 1)
-            torch.nn.utils.clip_grad_norm_(self.gen.edge_cell.parameters(), 1)
-            torch.nn.utils.clip_grad_norm_(self.gen.edge_classifiers.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.gen.parameters(), 1)
             torch.nn.utils.clip_grad_norm_(self.enc.parameters(), 1)
 
             self.enc_optim.step()
             self.gen_optim.step()
-        
+
             self.vae_train_step += 1
 
             kl_loss = float(kl_loss.item())
@@ -141,7 +138,7 @@ class Trainer:
                     'pred_loss': pred_loss
                 }, step=self.vae_train_step)
                 tqdm.write(
-                    'VAE Train [%4d] | KL Loss=[%.5f] | Pred Loss=[%.5f]'%
+                    'VAE Train [%4d] | KL Loss=[%6.5f] | Pred Loss=[%6.5f]'%
                     (i+1, kl_loss, pred_loss)
                 )
 
@@ -151,7 +148,7 @@ class Trainer:
         total_kl_loss /= i+1#self.vae_epoch_steps
         total_pred_loss /= i+1#self.vae_epoch_steps
 
-        print('VAE Train Total | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
+        print('VAE Train Total | Avg KL Loss=[%6.5f] | Avg Pred Loss=[%6.5f]'%
               (total_kl_loss, total_pred_loss))
 
         return total_kl_loss, total_pred_loss
@@ -165,32 +162,27 @@ class Trainer:
 
         total_kl_loss = 0
         total_pred_loss = 0
-        
+
         pbar = tqdm(range(min(self.vae_epoch_steps, len(self.val_loader))))
         pbar.set_description('VAE Val')
-        
+
         for i in pbar:
             G, atom_y, bond_y = next(self.val_datagen)
             if self.cuda:
                 G.to(torch.device('cuda:0'))
                 atom_y = atom_y.cuda(non_blocking=True)
-                bond_y = bond_y.cuda(non_blocking=True)                
-            
+                bond_y = bond_y.cuda(non_blocking=True)
+
             # Generate mu_x, logvar_x
             mu, logvar = self.enc(G)
             z = self.enc.reparameterize(mu, logvar, no_noise=True)
-            
+
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
-        
+
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
-            # Weighting KL loss
-            e_max_10 = min(self.epoch, 10)
-            e_max_10 = max(0, e_max_10)
-            e_max_10 = 1e-2
-            loss = e_max_10*kl_loss + pred_loss
+            kl_loss = kl_loss / z.shape[-1]
 
             self.vae_val_step += 1
 
@@ -206,17 +198,17 @@ class Trainer:
                     'pred_loss': pred_loss
                 }, step=self.vae_val_step)
                 tqdm.write(
-                    'VAE Val [%4d] | KL Loss=[%.5f] | Pred Loss=[%.5f]'%
+                    'VAE Val [%4d] | KL Loss=[%6.5f] | Pred Loss=[%6.5f]'%
                     (i+1, kl_loss, pred_loss)
                 )
 
             del mu, logvar, z, G_pred, \
-                pred_loss, kl_loss, loss
+                pred_loss, kl_loss
 
         total_kl_loss /= i+1
         total_pred_loss /= i+1
 
-        print('VAE Val Total | Avg KL Loss=[%.5f] | Avg Pred Loss=[%.5f]'%
+        print('VAE Val Total | Avg KL Loss=[%6.5f] | Avg Pred Loss=[%6.5f]'%
               (total_kl_loss, total_pred_loss))
 
         return total_kl_loss, total_pred_loss

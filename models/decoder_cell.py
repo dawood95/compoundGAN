@@ -42,7 +42,7 @@ class DecoderCell(nn.Module):
         s, h = self.lstm(x.unsqueeze(0), self.hidden)
         assert (s == h[-1]).all()
         self.hidden = h
-        return s[0]
+        return h.sum(0)#s[0]
 
     def forward_seq(self, x):
         s, h = self.lstm(x, self.hidden)

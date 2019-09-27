@@ -69,25 +69,4 @@ def ZINC_collate(x):
             if len(feat) == 0: continue
             bond_target[i, b, :len(feat)] = torch.Tensor(bond_feats[b][i])
 
-    '''
-    bond_target = [[],]*mask.shape[1]
-    for i in range(mask.shape[1]):
-        t = []
-        for b in range(mask.shape[0]):
-            if mask[b, i] == 1:
-                t.append(bond_feats[b][i])
-            else:
-                t.append(None)
-        _len = 0
-        for _t in t:
-            if _t is None: continue
-            _len = len(_t)
-            break
-        for j in range(len(t)):
-            if t[j] == None:
-                t[j] = [[0,0,0,0],]*_len
-        bond_target[i] = t
-    bond_target = [torch.Tensor(b).long() for b in bond_target]
-    '''
-
     return graphs, atom_targets.long(), bond_target.long()

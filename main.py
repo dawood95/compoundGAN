@@ -27,6 +27,7 @@ parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--weight-decay', type=float, default=0)
 
+parser.add_argument('--pretrained', type=str, default='')
 parser.add_argument('--cuda', action='store_true', default=False)
 parser.add_argument('--track', action='store_true', default=False)
 parser.add_argument('--comment', type=str, default='')
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     split_len     = int(len(train_dataset)*0.8)
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
-    
+
     train_loader = DataLoader(train_dataset,
                             batch_size=args.batch_size,
                             shuffle=True,
@@ -74,7 +75,12 @@ if __name__ == "__main__":
     enc = Encoder(59, 13, 256)
     gen = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
     dis = Discriminator(59, 13, 128)
-    
+
+    if args.pretrained:
+        state_dict = torch.load(args.pretrained, map_location='cpu')
+        enc.load_state_dict(state_dict['enc_state_dict'])
+        gen.load_state_dict(state_dict['gen_state_dict'], strict=False)
+
     # Optimizer
     enc_optimizer = Adam(enc.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     gen_optimizer = Adam(gen.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -103,5 +109,3 @@ if __name__ == "__main__":
     dataloader = [train_loader, val_loader]
     trainer = Trainer(dataloader, model, optimizer, None, logger, args.cuda)
     trainer.run(args.epoch)
-    
-
