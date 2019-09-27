@@ -88,9 +88,9 @@ class Generator(nn.Module):
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
-            node_embeddings.append(node_emb)
             
             if i == 0:
+                node_embeddings.append(node_emb)
                 node_list.append(node_pred)
                 edge_list.append([])
                 continue
@@ -118,7 +118,8 @@ class Generator(nn.Module):
 
             self.node_celli.reset_hidden(batch_size)
             self.node_celli.hidden = self.edge_celli.hidden
-            
+
+            node_embeddings.append(node_emb)
             node_list.append(node_pred)
             edge_list.append(edge_preds)
 
@@ -172,10 +173,10 @@ class Generator(nn.Module):
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
 
-            node_embeddings.append(node_emb)
-
             # Dont process edge if first node
-            if i == 0: continue
+            if i == 0:
+                node_embeddings.append(node_emb)
+                continue
 
             # Generate edges
             edge_preds = [[], [], [], []]
@@ -201,7 +202,8 @@ class Generator(nn.Module):
             # Reset node lstm state and set context
             self.node_celli.reset_hidden(batch_size)
             self.node_celli.hidden = self.edge_celli.hidden
-
+            node_embeddings.append(node_emb)
+            
             '''
             if i % 10 == 0:
                 x = x.detach()
