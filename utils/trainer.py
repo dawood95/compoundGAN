@@ -105,11 +105,10 @@ class Trainer:
                                                    #3*int(np.ceil(self.epoch/2)))
 
             # Calculate KL-Divergence Loss
-            kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            kl_loss = kl_loss / z.shape[-1]
+            kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss
-            kl_factor = 1e-3
+            kl_factor = 1
             loss = kl_factor*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
@@ -181,8 +180,7 @@ class Trainer:
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
 
             # Calculate KL-Divergence Loss
-            kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            kl_loss = kl_loss / z.shape[-1]
+            kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
             self.vae_val_step += 1
 

@@ -159,13 +159,15 @@ class Generator(nn.Module):
 
             # Calculate node loss
             for j in range(len(self.node_classifiers)):
-                node_loss += F.cross_entropy(node_pred[j], atom_target[i, :, j])
+                node_loss += F.cross_entropy(node_pred[j], atom_target[i, :, j], ignore_index=-1)
                 node_num  += 1
 
             # Generate node embedding for target/pred (teacher forcing)
             node_emb = []
             for j, emb_size in enumerate(self.one_hot_sizes):
-                emb = F.one_hot(atom_target[i, :, j], emb_size)
+                target = atom_target[i, :, j].data.cpu().clone()
+                target[target == -1] = emb_size -1
+                emb = F.one_hot(target, emb_size)
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
@@ -193,8 +195,7 @@ class Generator(nn.Module):
             for j in range(edge_y.shape[2]):
                 target = edge_y[:, :len(edge_emb), j].contiguous().view(-1)
                 pred = edge_preds[j].view(-1, edge_preds[j].shape[-1])
-                edge_loss += F.cross_entropy(pred, target,
-                                             ignore_index=-1)
+                edge_loss += F.cross_entropy(pred, target, ignore_index=-1)
                 edge_num += 1
 
             # Reset node lstm state and set context
@@ -210,9 +211,9 @@ class Generator(nn.Module):
 
         pred_loss = 0
         if node_num > 0:
-            pred_loss += node_loss/node_num
+            pred_loss += node_loss#/node_num
         if edge_num > 0:
-            pred_loss += edge_loss/edge_num
+            pred_loss += edge_loss#/edge_num
         if node_num + edge_num == 0: raise ValueError
 
         return None, pred_loss

@@ -58,9 +58,10 @@ def ZINC_collate(x):
             if mask[b, i] == 1:
                 atom_targets[i, b, :] = torch.Tensor(atom_feats[b][i])
             else:
-                atom_targets[i, b, :] = torch.Tensor([len(Library.atom_list), 3, 0, 2, 0])
+                atom_targets[i, b, :] = -1#torch.Tensor([len(Library.atom_list), 3, 0, 2, 0])
 
     bond_target = torch.zeros((mask.shape[1], mask.shape[0], max_seq_len, 4))
+    bond_target[:] = -1
     # not the most efficient, but whatever
     for i in range(mask.shape[1]):
         for b in range(mask.shape[0]):
