@@ -111,7 +111,7 @@ def mol2graph(mol):
         f = torch.cat(f, dim=1)
         feats.append(f)
     feats = torch.cat(feats, 0).float()
-    #feats[feats == 0] = -1
+    feats[feats == 0] = -1
     G.ndata['feats'] = feats
 
     #bond_emb, conjugated, ring, chirality
@@ -122,7 +122,7 @@ def mol2graph(mol):
         f = torch.cat(f, dim=0)
         feats.append(f.unsqueeze(0))
     feats = torch.cat(feats * 2, 0).float()
-    #feats[feats == 0] = -1
+    feats[feats == 0] = -1
     G.edata['feats'] = feats
 
     # Get BFS node sequence to use as target sequence

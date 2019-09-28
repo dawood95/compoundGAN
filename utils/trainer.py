@@ -31,6 +31,8 @@ class Trainer:
         self.epoch      = 0
         self.train_step = 0
 
+        self.train_seq_len = 2
+
         self.vae_epoch_steps = 1_000
         self.vae_train_step  = 0
         self.vae_val_step    = 0
@@ -101,8 +103,10 @@ class Trainer:
             z = self.enc.reparameterize(mu, logvar)
 
             # Run compound generator and accumulate loss
-            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y, self.epoch)
-                                                   #3*int(np.ceil(self.epoch/2)))
+            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y, self.train_seq_len)
+
+            if pred_loss < 0.10:
+                self.train_seq_len = 2 * self.train_seq_len
 
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
@@ -137,15 +141,14 @@ class Trainer:
                     'pred_loss': pred_loss
                 }, step=self.vae_train_step)
                 tqdm.write(
-                    'VAE Train [%4d] | KL Loss=[%6.5f] | Pred Loss=[%6.5f]'%
-                    (i+1, kl_loss, pred_loss)
+                    'VAE Train [%4d : %4d] | KL Loss=[%6.5f] | Pred Loss=[%6.5f]'%
+                    (i+1, self.train_seq_len, kl_loss, pred_loss)
                 )
 
-            del mu, logvar, z, G_pred, \
-                pred_loss, kl_loss, loss
+            del mu, logvar, z, G_pred, pred_loss, kl_loss, loss
 
-        total_kl_loss /= i+1#self.vae_epoch_steps
-        total_pred_loss /= i+1#self.vae_epoch_steps
+        total_kl_loss /= i+1
+        total_pred_loss /= i+1
 
         print('VAE Train Total | Avg KL Loss=[%6.5f] | Avg Pred Loss=[%6.5f]'%
               (total_kl_loss, total_pred_loss))
