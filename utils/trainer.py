@@ -105,14 +105,11 @@ class Trainer:
             # Run compound generator and accumulate loss
             G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y, self.train_seq_len)
 
-            if pred_loss < 0.10:
-                self.train_seq_len = 2 * self.train_seq_len
-
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss
-            kl_factor = 1e-2
+            kl_factor = 1e-3
             loss = kl_factor*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
@@ -149,6 +146,9 @@ class Trainer:
 
         total_kl_loss /= i+1
         total_pred_loss /= i+1
+
+        if total_pred_loss < 0.10:
+                self.train_seq_len = 2 * self.train_seq_len
 
         print('VAE Train Total | Avg KL Loss=[%6.5f] | Avg Pred Loss=[%6.5f]'%
               (total_kl_loss, total_pred_loss))
