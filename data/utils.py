@@ -91,7 +91,8 @@ def mol2graph(mol):
     G = dgl.DGLGraph()
     bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
 
-    mol = Chem.AddHs(mol)
+    #mol = Chem.AddHs(mol)
+
     atoms = list(mol.GetAtoms())
     bonds = list(mol.GetBonds())
 
@@ -112,7 +113,7 @@ def mol2graph(mol):
     feats = torch.cat(feats, 0).float()
     #feats[feats == 0] = -1
     G.ndata['feats'] = feats
-    
+
     #bond_emb, conjugated, ring, chirality
     feats = []
     bond_feats = bonds2vec(bonds)
@@ -159,5 +160,5 @@ def mol2graph(mol):
 
     target = np.array(target)
     bond_target = np.array(bond_target)
-    
+
     return G, target, bond_target

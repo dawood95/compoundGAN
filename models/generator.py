@@ -16,7 +16,7 @@ class Generator(nn.Module):
         super().__init__()
 
         hidden_size = 256
-        input_size  = sum(node_feats)
+        input_size  = hidden_size#sum(node_feats)
 
         self.latent_project = nn.Linear(latent_size, hidden_size, bias=True)
 
@@ -68,7 +68,7 @@ class Generator(nn.Module):
                 x = torch.zeros((batch_size, self.node_inp_size))
                 if z.is_cuda: x = x.cuda()
             else:
-                x = node_embeddings[-1]    
+                x = node_embeddings[-1]
 
             node_emb  = self.node_celli.forward_unit(x)
 
@@ -88,7 +88,7 @@ class Generator(nn.Module):
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
-            
+
             if i == 0:
                 node_embeddings.append(node_emb)
                 node_list.append(node_pred)
@@ -111,7 +111,7 @@ class Generator(nn.Module):
                     edge_pred.append((idx, prob))
                 edge_preds.append(edge_pred)
             edge_preds = edge_preds[::-1]
-            
+
             no_edges = torch.cat([(pred[0][0] == 0) for pred in edge_preds],0)
             no_edges = no_edges.all()
             if no_edges: break
@@ -164,6 +164,7 @@ class Generator(nn.Module):
                 node_num  += 1
 
             # Generate node embedding for target/pred (teacher forcing)
+            '''
             node_emb = []
             for j, emb_size in enumerate(self.one_hot_sizes):
                 target = atom_target[i, :, j].data.cpu().clone()
@@ -172,6 +173,7 @@ class Generator(nn.Module):
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
+            '''
 
             # Dont process edge if first node
             if i == 0:
@@ -183,6 +185,7 @@ class Generator(nn.Module):
             self.edge_celli.reset_hidden(batch_size)
             self.edge_celli.hidden = self.node_celli.hidden
 
+            # NOTE: Doesn't make sense to pass in just atom types
             edge_inp = [prev_nemb.unsqueeze(0) for prev_nemb in node_embeddings[::-1]]
             edge_inp = torch.cat(edge_inp, 0)
             edge_emb = self.edge_celli.forward_seq(edge_inp)
@@ -203,7 +206,7 @@ class Generator(nn.Module):
             self.node_celli.reset_hidden(batch_size)
             self.node_celli.hidden = self.edge_celli.hidden
             node_embeddings.append(node_emb)
-            
+
             '''
             if i % 10 == 0:
                 x = x.detach()
@@ -213,9 +216,9 @@ class Generator(nn.Module):
 
         pred_loss = 0
         if node_num > 0:
-            pred_loss += node_loss#/node_num
+            pred_loss += node_loss/node_num
         if edge_num > 0:
-            pred_loss += edge_loss#/edge_num
+            pred_loss += edge_loss/edge_num
         if node_num + edge_num == 0: raise ValueError
 
         return None, pred_loss

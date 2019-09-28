@@ -101,14 +101,14 @@ class Trainer:
             z = self.enc.reparameterize(mu, logvar)
 
             # Run compound generator and accumulate loss
-            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)
+            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y, self.epoch)
                                                    #3*int(np.ceil(self.epoch/2)))
 
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss
-            kl_factor = 1
+            kl_factor = 1e-2
             loss = kl_factor*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
