@@ -29,6 +29,7 @@ class ZINC250K(data.Dataset):
     def __len__(self):
         return len(self.data)
 
+#@profile
 def ZINC_collate(x):
     #return None, None, None
     graphs = []
@@ -44,30 +45,14 @@ def ZINC_collate(x):
     for bn in bond_feats:
         max_seq_len = max([len(bn), max_seq_len])
 
-    mask = []
-    # for each item in batch
-    for bn in bond_feats:
-        _mask = torch.zeros((1, max_seq_len))
-        _mask[0, :len(bn)] = 1
-        mask.append(_mask)
-    mask = torch.cat(mask)
+    atom_targets = torch.ones((max_seq_len, len(atom_feats), af.shape[-1]))
+    atom_targets = -1 * atom_targets
+    for b, af in enumerate(atom_feats):
+        atom_targets[:len(af), b] = af
 
-    atom_targets = -1*torch.ones((mask.shape[1], mask.shape[0], 5))
-    for i in range(mask.shape[1]):
-        for b in range(len(atom_feats)):
-            if mask[b, i] == 1:
-                atom_targets[i, b, :] = torch.Tensor(atom_feats[b][i])
-            else:
-                atom_targets[i, b, :] = -1#torch.Tensor([len(Library.atom_list), 3, 0, 2, 0])
+    bond_targets = torch.ones((max_seq_len, len(bond_feats), max_seq_len-1, bf.shape[-1]))
+    bond_targets = -1 * bond_targets
+    for b, bf in enumerate(bond_feats):
+        bond_targets[:bf.shape[0], b, :bf.shape[1]] = bf
 
-    bond_target = torch.zeros((mask.shape[1], mask.shape[0], max_seq_len, 4))
-    bond_target[:] = -1
-    # not the most efficient, but whatever
-    for i in range(mask.shape[1]):
-        for b in range(mask.shape[0]):
-            if i >= len(bond_feats[b]): continue
-            feat = bond_feats[b][i]
-            if len(feat) == 0: continue
-            bond_target[i, b, :len(feat)] = torch.Tensor(bond_feats[b][i])
-
-    return graphs, atom_targets.long(), bond_target.long()
+    return graphs, atom_targets.long(), bond_targets.long()

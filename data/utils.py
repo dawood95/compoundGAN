@@ -18,75 +18,113 @@ class Library:
     chirality_list = ['R', 'S']
 
 def atoms2vec(atoms):
-    atom_emb = []
-    charge_emb = []
-    electron_emb = []
-    chirality_emb = []
-    aromatic_emb = []
+    atom_idx      = []
+    charge_idx    = []
+    electron_idx  = []
+    chirality_idx = []
+    aromatic_idx  = []
+    
     for atom in atoms:
         # Element
         try: idx = Library.atom_list.index(atom.GetSymbol())
         except: raise ValueError
-        idx = torch.Tensor([idx]).long()
-        emb = F.one_hot(idx, len(Library.atom_list)+1)
-        atom_emb.append(emb)
+        atom_idx.append(idx)
 
         # Charge
-        idx = torch.Tensor([atom.GetFormalCharge()+3]).long()
-        emb = F.one_hot(idx, len(Library.charge_list))
-        charge_emb.append(emb)
+        idx = atom.GetFormalCharge()+3
+        charge_idx.append(idx)
 
         # Radical Electrons
-        idx = torch.Tensor([atom.GetNumRadicalElectrons()]).long()
-        emb = F.one_hot(idx, len(Library.electron_list))
-        electron_emb.append(emb)
+        idx = atom.GetNumRadicalElectrons()
+        electron_idx.append(idx)
 
         # Aromatic
-        idx = torch.Tensor([atom.GetIsAromatic()]).long()
-        emb = F.one_hot(idx, 2)
-        aromatic_emb.append(emb)
+        idx = atom.GetIsAromatic()
+        aromatic_idx.append(idx)
 
         # Chirality
         try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
         except: idx = len(Library.chirality_list)
-        idx = torch.Tensor([idx]).long()
-        emb = F.one_hot(idx, len(Library.chirality_list)+1)
-        chirality_emb.append(emb)
+        chirality_idx.append(idx)
+        
+    atom_idx      = torch.Tensor(atom_idx).long()
+    charge_idx    = torch.Tensor(charge_idx).long()
+    electron_idx  = torch.Tensor(electron_idx).long()
+    aromatic_idx  = torch.Tensor(aromatic_idx).long()
+    chirality_idx = torch.Tensor(chirality_idx).long()
+    
+    atom_emb      = F.one_hot(atom_idx, len(Library.atom_list)+1)
+    charge_emb    = F.one_hot(charge_idx, len(Library.charge_list))
+    electron_emb  = F.one_hot(electron_idx, len(Library.electron_list))
+    aromatic_emb  = F.one_hot(aromatic_idx, 2)
+    chirality_emb = F.one_hot(chirality_idx, len(Library.chirality_list)+1)
 
-    return atom_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb
+    feats = [atom_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb]
+    feats = torch.cat(feats, dim=1)
+    feats[feats == 0] = -1
+    
+    end_node = torch.Tensor([len(Library.atom_list), 3, 0, 2, 0]).long()
+    end_node = end_node.unsqueeze(0)
+    
+    target = [atom_idx, charge_idx, electron_idx, chirality_idx, aromatic_idx]
+    target = [t.unsqueeze(1) for t in target]
+    target = torch.cat(target, dim=1)
+    target = torch.cat([target, end_node], dim=0)
 
-def bonds2vec(bonds):
-    conjugated = []
-    ring = []
-    bond_emb = []
-    chirality = []
+    return feats.float(), target.long()
+
+def bonds2vec(bonds, repeat_bonds=True):
+    bond_idx       = []    
+    conjugated_idx = []
+    ring_idx       = []
+    chirality_idx  = []
+
+    bondtype_list  = [Chem.rdchem.BondType.SINGLE,
+                      Chem.rdchem.BondType.DOUBLE,
+                      Chem.rdchem.BondType.TRIPLE,
+                      Chem.rdchem.BondType.AROMATIC]
+    
+    chirality_list = ["STEREONONE", "STEREOANY",
+                      "STEREOZ", "STEREOE"]
+    
     for bond in bonds:
         bt = bond.GetBondType()
         bs = str(bond.GetStereo())
 
-        emb = [False,
-               bt == Chem.rdchem.BondType.SINGLE,
-               bt == Chem.rdchem.BondType.DOUBLE,
-               bt == Chem.rdchem.BondType.TRIPLE,
-               bt == Chem.rdchem.BondType.AROMATIC]
-        emb = torch.Tensor(emb).long()
-        bond_emb.append(emb)
+        try: bt = bondtype_list.index(bt)+1
+        except: bt = 0
+        bond_idx.append(bt)
+        conjugated_idx.append(bond.GetIsConjugated())
+        ring_idx.append(bond.IsInRing())
+        chirality_idx.append(chirality_list.index(bs))
 
-        emb = torch.Tensor([bond.GetIsConjugated()]).long()
-        conjugated.append(torch.Tensor([emb == 0, emb == 1]).long())
+    if repeat_bonds:
+        bond_idx = bond_idx * 2
+        conjugated_idx = conjugated_idx * 2
+        ring_idx = ring_idx * 2
+        chirality_idx = chirality_idx * 2
+        
+    bond_idx       = torch.Tensor(bond_idx).long()
+    conjugated_idx = torch.Tensor(conjugated_idx).long()
+    ring_idx       = torch.Tensor(ring_idx).long()
+    chirality_idx  = torch.Tensor(chirality_idx).long()
 
-        emb = torch.Tensor([bond.IsInRing()]).long()
-        ring.append(torch.Tensor([emb == 0, emb == 1]).long())
+    bond_emb       = F.one_hot(bond_idx, len(bondtype_list)+1)
+    conjugated_emb = F.one_hot(conjugated_idx, 2)
+    ring_emb       = F.one_hot(ring_idx, 2)
+    chirality_emb  = F.one_hot(chirality_idx, len(chirality_list))
 
-        emb = [bs=="STEREONONE",
-               bs=="STEREOANY",
-               bs=="STEREOZ",
-               bs=="STEREOE"]
-        emb = torch.Tensor(emb).long()
-        chirality.append(emb)
+    feats = [bond_emb, conjugated_emb, ring_emb, chirality_emb]
+    feats = torch.cat(feats, dim=1)
+    feats[feats == 0] = -1
 
-    return bond_emb, conjugated, ring, chirality
+    target = [bond_idx, conjugated_idx, ring_idx, chirality_idx]
+    target = [t.unsqueeze(1) for t in target]
+    target = torch.cat(target, dim=1)
 
+    return feats.float(), target.long()
+
+#@profile
 def mol2graph(mol):
     G = dgl.DGLGraph()
     bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
@@ -103,27 +141,13 @@ def mol2graph(mol):
     G.add_edges(edge_start, edge_end)
     G.add_edges(edge_end, edge_start)
 
-    #atoms_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb
-    feats = []
-    atom_feats = atoms2vec(atoms)
-    for i in range(len(atoms)):
-        f = [af[i] for af in atom_feats]
-        f = torch.cat(f, dim=1)
-        feats.append(f)
-    feats = torch.cat(feats, 0).float()
-    feats[feats == 0] = -1
-    G.ndata['feats'] = feats
+    #atom feats
+    atom_feats, atom_targets = atoms2vec(atoms)
+    G.ndata['feats'] = atom_feats
 
-    #bond_emb, conjugated, ring, chirality
-    feats = []
-    bond_feats = bonds2vec(bonds)
-    for i in range(len(bonds)):
-        f = [bf[i] for bf in bond_feats]
-        f = torch.cat(f, dim=0)
-        feats.append(f.unsqueeze(0))
-    feats = torch.cat(feats * 2, 0).float()
-    feats[feats == 0] = -1
-    G.edata['feats'] = feats
+    #bond_feats
+    bond_feats, bond_targets = bonds2vec(bonds)
+    G.edata['feats'] = bond_feats
 
     # Get BFS node sequence to use as target sequence
     atom_seq = torch.cat(dgl.bfs_nodes_generator(G, bfs_root))
@@ -131,34 +155,17 @@ def mol2graph(mol):
 
     # Rearrange order according to BFS
     # Generator will try to generate in this sequence
-    target = []
-    for i in atom_seq:
-        _target = []
-        for af in atom_feats:
-            _target.append(af[i].nonzero()[0, 1].item())
-        target.append(_target)
-    target.append([len(Library.atom_list), 3, 0, 2, 0])
-
-    bond_target = []
+    atom_targets = atom_targets[atom_seq + [len(atom_targets) - 1,]]
+    
+    allpair_bonds = torch.zeros((len(atom_targets), len(atom_targets)-1, bond_targets.shape[-1]))
     for i in range(len(atom_seq)):
-        _bond_target = []
         for j in range(i):
             s = atom_seq[j]
             e = atom_seq[i]
             if G.has_edge_between(s, e):
-                ## could be the second set of bonds too, thus modulo
-                bond_id = G.edge_id(s, e)%len(bonds)
-                _target = [bf[bond_id].nonzero()[0] for bf in bond_feats]
-                _target = [x.item() for x in _target]
-                _bond_target.append(_target)
-            else:
-                _bond_target.append([0, 0, 0, 0])
-        bond_target.append(_bond_target)
-    bond_target.append([[0, 0, 0, 0] for _ in range(len(bond_target[-1])+1)])
+                bond_id = G.edge_id(s, e)
+                allpair_bonds[i, j, :] = bond_targets[bond_id].clone()
 
     G.add_edges(G.nodes(), G.nodes())
 
-    target = np.array(target)
-    bond_target = np.array(bond_target)
-
-    return G, target, bond_target
+    return G, atom_targets, allpair_bonds
