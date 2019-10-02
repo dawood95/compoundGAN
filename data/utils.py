@@ -23,7 +23,7 @@ def atoms2vec(atoms):
     electron_idx  = []
     chirality_idx = []
     aromatic_idx  = []
-    
+
     for atom in atoms:
         # Element
         try: idx = Library.atom_list.index(atom.GetSymbol())
@@ -46,13 +46,13 @@ def atoms2vec(atoms):
         try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
         except: idx = len(Library.chirality_list)
         chirality_idx.append(idx)
-        
+
     atom_idx      = torch.Tensor(atom_idx).long()
     charge_idx    = torch.Tensor(charge_idx).long()
     electron_idx  = torch.Tensor(electron_idx).long()
     aromatic_idx  = torch.Tensor(aromatic_idx).long()
     chirality_idx = torch.Tensor(chirality_idx).long()
-    
+
     atom_emb      = F.one_hot(atom_idx, len(Library.atom_list)+1)
     charge_emb    = F.one_hot(charge_idx, len(Library.charge_list))
     electron_emb  = F.one_hot(electron_idx, len(Library.electron_list))
@@ -62,10 +62,10 @@ def atoms2vec(atoms):
     feats = [atom_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb]
     feats = torch.cat(feats, dim=1)
     feats[feats == 0] = -1
-    
+
     end_node = torch.Tensor([len(Library.atom_list), 3, 0, 2, 0]).long()
     end_node = end_node.unsqueeze(0)
-    
+
     target = [atom_idx, charge_idx, electron_idx, chirality_idx, aromatic_idx]
     target = [t.unsqueeze(1) for t in target]
     target = torch.cat(target, dim=1)
@@ -74,7 +74,7 @@ def atoms2vec(atoms):
     return feats.float(), target.long()
 
 def bonds2vec(bonds, repeat_bonds=True):
-    bond_idx       = []    
+    bond_idx       = []
     conjugated_idx = []
     ring_idx       = []
     chirality_idx  = []
@@ -83,10 +83,10 @@ def bonds2vec(bonds, repeat_bonds=True):
                       Chem.rdchem.BondType.DOUBLE,
                       Chem.rdchem.BondType.TRIPLE,
                       Chem.rdchem.BondType.AROMATIC]
-    
+
     chirality_list = ["STEREONONE", "STEREOANY",
                       "STEREOZ", "STEREOE"]
-    
+
     for bond in bonds:
         bt = bond.GetBondType()
         bs = str(bond.GetStereo())
@@ -103,7 +103,7 @@ def bonds2vec(bonds, repeat_bonds=True):
         conjugated_idx = conjugated_idx * 2
         ring_idx = ring_idx * 2
         chirality_idx = chirality_idx * 2
-        
+
     bond_idx       = torch.Tensor(bond_idx).long()
     conjugated_idx = torch.Tensor(conjugated_idx).long()
     ring_idx       = torch.Tensor(ring_idx).long()
@@ -156,7 +156,7 @@ def mol2graph(mol):
     # Rearrange order according to BFS
     # Generator will try to generate in this sequence
     atom_targets = atom_targets[atom_seq + [len(atom_targets) - 1,]]
-    
+
     allpair_bonds = torch.zeros((len(atom_targets), len(atom_targets)-1, bond_targets.shape[-1]))
     for i in range(len(atom_seq)):
         for j in range(i):

@@ -31,9 +31,10 @@ class Trainer:
         self.epoch      = 0
         self.train_step = 0
 
-        self.train_seq_len = 2
+        self.loss_thresh = 0.10
+        self.train_seq_len = 8
 
-        self.vae_epoch_steps = 1_000
+        self.vae_epoch_steps = min(1_000, len(self.train_loader))
         self.vae_train_step  = 0
         self.vae_val_step    = 0
 
@@ -72,7 +73,8 @@ class Trainer:
             'gen_state_dict' : self.gen.state_dict(),
             'dis_state_dict' : self.dis.state_dict(),
         }
-        self.logger.save('model_%d.weights'%self.epoch, data)
+        torch.save(data, 'model.weights')
+        #self.logger.save('model_%d.weights'%self.epoch, data)
 
     def train_discriminator(self):
         raise NotImplementedError
@@ -103,13 +105,13 @@ class Trainer:
             z = self.enc.reparameterize(mu, logvar)
 
             # Run compound generator and accumulate loss
-            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y, self.train_seq_len)
+            G_pred, pred_loss = self.gen.calc_loss(z, atom_y, bond_y)#, self.train_seq_len)
 
             # Calculate KL-Divergence Loss
             kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
             # Weighting KL loss
-            kl_factor = 1e-3
+            kl_factor = 5e-2
             loss = kl_factor*kl_loss + pred_loss
 
             self.enc_optim.zero_grad()
@@ -118,8 +120,8 @@ class Trainer:
             loss.backward()
 
             # clip gradients
-            torch.nn.utils.clip_grad_norm_(self.gen.parameters(), 1)
-            torch.nn.utils.clip_grad_norm_(self.enc.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.gen.parameters(), 5)
+            torch.nn.utils.clip_grad_norm_(self.enc.parameters(), 5)
 
             self.enc_optim.step()
             self.gen_optim.step()
@@ -147,8 +149,13 @@ class Trainer:
         total_kl_loss /= i+1
         total_pred_loss /= i+1
 
-        if total_pred_loss < 0.10:
-                self.train_seq_len = 2 * self.train_seq_len
+        if total_pred_loss < self.loss_thresh:
+            self.train_seq_len += 8
+            self.loss_thresh -= 0.01
+            self.loss_thresh = max(self.loss_thresh, 0.05)
+        else:
+            self.train_seq_len -= 1
+            self.loss_thresh += 0.005
 
         print('VAE Train Total | Avg KL Loss=[%6.5f] | Avg Pred Loss=[%6.5f]'%
               (total_kl_loss, total_pred_loss))

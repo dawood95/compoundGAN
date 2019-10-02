@@ -1,3 +1,4 @@
+import dgl
 import torch
 import numpy as np
 
@@ -35,19 +36,6 @@ class Generator(nn.Module):
         self.node_inp_size = input_size
         self.one_hot_sizes = node_feats
 
-        def init_weights(m):
-            for name, param in m.named_parameters():
-                if 'weight' in name:
-                    nn.init.xavier_normal_(param.data)
-                else:
-                    nn.init.constant_(param.data, 0)
-
-        #self.latent_project.apply(init_weights)
-        #self.node_celli.apply(init_weights)
-        #self.node_classifiers.apply(init_weights)
-        #self.edge_celli.apply(init_weights)
-        #self.edge_classifiers.apply(init_weights)
-
     def forward(self, z, max_nodes=500):
 
         batch_size = z.shape[0]
@@ -81,13 +69,14 @@ class Generator(nn.Module):
 
             if node_pred[0][0] == self.end_node:
                 break
-
+            '''
             node_emb = []
             for j, emb_size in enumerate(self.one_hot_sizes):
                 emb = F.one_hot(node_pred[j][0], emb_size)
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float()
             if z.is_cuda: node_emb = node_emb.cuda()
+            '''
 
             if i == 0:
                 node_embeddings.append(node_emb)
@@ -127,8 +116,13 @@ class Generator(nn.Module):
 
     def calc_loss(self, z, atom_target, bond_target, max_steps=np.inf):
 
-        max_seq_length = min(atom_target.shape[0], max_steps)
+        #max_seq_length = min(atom_target.shape[0], max_steps)
+        max_seq_length = atom_target.shape[0]
         batch_size     = atom_target.shape[1]
+
+        output_graphs = [dgl.DGLGraph() for _ in range(batch_size)]
+        num_nodes     = -1*torch.ones(batch_size)
+        num_nodes     = num_nodes.cuda() if z.is_cuda else num_nodes
 
         # Node and Edge Loss
         node_loss = 0
@@ -145,6 +139,10 @@ class Generator(nn.Module):
         self.node_celli.set_context(z)
 
         node_embeddings = []
+
+        pred_node_feats = []
+        pred_edge_feats = []
+        pred_edge_list  = []
         for i in range(max_seq_length):
 
             # Create input for node RNN
@@ -162,6 +160,15 @@ class Generator(nn.Module):
             for j in range(len(self.node_classifiers)):
                 node_loss += F.cross_entropy(node_pred[j], atom_target[i, :, j], ignore_index=-1)
                 node_num  += 1
+
+            node_pred = [F.softmax(p, -1) for p in node_pred]
+
+            cond1 = torch.max(node_pred[0], 1)[1] == self.end_node
+            cond2 = num_nodes == -1
+            num_nodes[cond1 & cond2] = i
+
+            node_pred = torch.cat(node_pred, 1)
+            pred_node_feats.append(node_pred.unsqueeze(1))
 
             # Generate node embedding for target/pred (teacher forcing)
             '''
@@ -201,18 +208,49 @@ class Generator(nn.Module):
                 pred = edge_preds[j].view(-1, edge_preds[j].shape[-1])
                 edge_loss += F.cross_entropy(pred, target, ignore_index=-1)
                 edge_num += 1
+                if node_num + edge_num >= max_steps: break
+
+            edge_preds = [F.softmax(p, -1) for p in edge_preds]
+            edges = torch.max(edge_preds[0], 2)[1] != 0
+            edge_preds = torch.cat(edge_preds, -1)
+
+            pred_edge_feats.append(edge_preds)
+            pred_edge_list.append(edges)
+
+            if node_num + edge_num >= max_steps: break
 
             # Reset node lstm state and set context
             self.node_celli.reset_hidden(batch_size)
             self.node_celli.hidden = self.edge_celli.hidden
             node_embeddings.append(node_emb)
 
-            '''
-            if i % 10 == 0:
-                x = x.detach()
-                self.node_celli.detach()
-                node_embeddings = [emb.detach() for emb in node_embeddings]
-            '''
+
+        pred_node_feats = torch.cat(pred_node_feats, 1)
+
+        num_nodes[num_nodes == -1] = i+1
+        for b in range(batch_size):
+            num_node = int(num_nodes[b].item())
+            output_graphs[b].add_nodes(num_node)
+            output_graphs[b].ndata['feats'] = pred_node_feats[b,:num_node]
+
+        #for g in output_graphs: print(g)
+
+        edge_feats = [[] for _ in range(batch_size)] #filtered edge feats
+        e = 1
+        for edges in pred_edge_list:
+            b, s = torch.where(edges)
+            for i in range(len(b)):
+                if e >= num_nodes[b[i]].item(): continue
+                output_graphs[b[i]].add_edges(s[i], e)
+                output_graphs[b[i]].add_edges(e, s[i])
+                edge_feats[b[i]].append(pred_edge_feats[e-1][b[i], s[i]].unsqueeze(0))
+                edge_feats[b[i]].append(pred_edge_feats[e-1][b[i], s[i]].unsqueeze(0))
+            e+=1
+
+        for b, e in enumerate(edge_feats):
+            if len(e) == 0: continue
+            e = torch.cat(e, 0)
+            output_graphs[b].edata['feats'] = e
 
         pred_loss = 0
         if node_num > 0:
@@ -221,4 +259,4 @@ class Generator(nn.Module):
             pred_loss += edge_loss/edge_num
         if node_num + edge_num == 0: raise ValueError
 
-        return None, pred_loss
+        return dgl.batch(output_graphs), pred_loss
