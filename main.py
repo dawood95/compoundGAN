@@ -45,35 +45,20 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    # Dataloader
-    dataset = ZINC250K(args.data_file)
-
-    train_dataset = dataset
-    val_dataset   = deepcopy(dataset)
-    split_len     = int(len(train_dataset)*0.8)
-    train_dataset.data = train_dataset.data[:split_len]
-    val_dataset.data   = val_dataset.data[split_len:]
-
-    train_loader = DataLoader(train_dataset,
-                            batch_size=args.batch_size,
-                            shuffle=True,
-                            num_workers=args.num_workers,
-                            collate_fn=ZINC_collate,
-                            pin_memory=args.cuda,
-                            drop_last=True)
-
-    val_loader = DataLoader(val_dataset,
-                            batch_size=args.batch_size,
-                            shuffle=False,
-                            num_workers=args.num_workers,
-                            collate_fn=ZINC_collate,
-                            pin_memory=args.cuda,
-                            drop_last=True)
+    # Dataloader.
+    # TODO: Maybe make it iterable dataset instead
+    dataset     = ZINC250K(args.data_file)
+    data_loader = DataLoader(dataset,
+                             batch_size=args.batch_size,
+                             shuffle=True,
+                             num_workers=args.num_workers,
+                             collate_fn=ZINC_collate,
+                             pin_memory=args.cuda,
+                             drop_last=True)
 
     # Model
-    enc = Encoder(59, 13, 256)
-    gen = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
-    dis = Discriminator(59, 13, 128)
+    G = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
+    D = Discriminator(59, 13, 128)
 
     if args.pretrained:
         state_dict = torch.load(args.pretrained, map_location='cpu')

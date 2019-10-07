@@ -29,7 +29,7 @@ def onehot_noise(vector, alpha=2.0):
     vector = vector + noise
     vector = torch.clamp(vector, clamp)
     logits = torch.log(vector)
-    vector = F.softmax(logits)
+    vector = F.softmax(logits, -1)
     return vector
 
 def atoms2vec(atoms):
@@ -168,7 +168,7 @@ def mol2graph(mol, canonical=False):
     # Create BFS-representation graph
     G = dgl.DGLGraph()
     num_nodes = len(atoms) + 1
-    num_edges = (num_nodes * (num_nodes+1))
+    num_edges = (num_nodes * (num_nodes - 1)) + num_nodes # + for self loop
     node_feats = torch.zeros((num_nodes, atom_feats.shape[-1]))
     edge_feats = torch.zeros((num_edges, bond_feats.shape[-1]))
 
@@ -178,7 +178,7 @@ def mol2graph(mol, canonical=False):
     for i in range(len(atom_seq)):
         # i + 1 for self loops
         node_feats[i] = atom_feats[atom_seq[i]].clone()
-        for j in range(i + 1):
+        for j in range(i):
             s = atom_seq[i]
             e = atom_seq[j]
             if dummyG.has_edge_between(s, e):
@@ -188,12 +188,15 @@ def mol2graph(mol, canonical=False):
             G.add_edge(i, j)
             G.add_edge(j, i)
             edge_num += 2
+        G.add_edge(i, i)
+        edge_num += 1
 
     # Add feats for stop node
     node_feats[-1] = atom_feats[-1].clone()
-    for j in range(len(atom_seq)+1):
+    for j in range(len(atom_seq)):
         G.add_edge(j, len(atom_seq))
         G.add_edge(len(atom_seq), j)
+    G.add_edge(len(atom_seq), len(atom_seq))
 
     # set feats to graph
     G.ndata['feats'] = node_feats

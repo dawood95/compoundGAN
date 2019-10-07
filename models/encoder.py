@@ -27,18 +27,3 @@ class Encoder(nn.Module):
             return mu + std*eps
         else:
             return mu
-
-class Discriminator(nn.Module):
-
-    def __init__(self, node_feats, edge_feats, latent_feats, bias=True):
-        super().__init__()
-
-        self.gcn = GCN(node_feats, edge_feats, 256, [64, 128, 128], bias)
-        self.fc     = nn.Linear(256, latent_feats, bias)
-
-    def forward(self, G):
-        raise NotImplementedError
-        feat     = F.relu(self.gcn(G))
-        mu_x     = self.mu_fc(feat)
-        logvar_x = self.logvar_fc(feat)
-        return mu_x, logvar_x
