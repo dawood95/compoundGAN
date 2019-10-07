@@ -9,6 +9,8 @@ from torch.nn import functional as F
 class MolConv(nn.Module):
     '''
     node+edge -> node
+    Bond features are only incorporated using concat with node features.
+    Bond features don't really evolve. Maybe they should.
     '''
     def __init__(self,
                  node_in_feats, edge_in_feats, out_feats,

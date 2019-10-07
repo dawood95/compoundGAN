@@ -34,7 +34,6 @@ parser.add_argument('--comment', type=str, default='')
 
 parser.add_argument('--seed', type=int, default=0)
 
-#torch.multiprocessing.set_sharing_strategy('file_system')
 
 if __name__ == "__main__":
     args = parser.parse_args()
