@@ -9,7 +9,7 @@ from copy import deepcopy
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler, Adam
 
-from models.encoder import Encoder, Discriminator
+from models.discriminator import Discriminator
 from models.generator import Generator
 
 from data.zinc import ZINC250K, ZINC_collate
@@ -57,24 +57,25 @@ if __name__ == "__main__":
                              drop_last=True)
 
     # Model
-    G = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
-    D = Discriminator(59, 13, 128)
+    node_feats_num = [44, 7, 3, 3, 2]
+    edge_feats_num = [5, 2, 2, 4]
+    G = Generator(128, node_feats_num, edge_feats_num, 4)
+    D = Discriminator(sum(node_feats_num), sum(edge_feats_num))
 
     if args.pretrained:
         state_dict = torch.load(args.pretrained, map_location='cpu')
-        enc.load_state_dict(state_dict['enc_state_dict'])
-        gen.load_state_dict(state_dict['gen_state_dict'], strict=False)
+        G.load_state_dict(state_dict['G'])
+        D.load_state_dict(state_dict['D'])
 
     # Optimizer
-    enc_optimizer = Adam(enc.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    gen_optimizer = Adam(gen.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    dis_optimizer = Adam(dis.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # People are using smaller beta1 TODO: Investigate
+    optimizer_G = Adam(G.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer_D = Adam(D.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     # CUDA
     if args.cuda:
-        enc = enc.cuda()
-        gen = gen.cuda()
-        dis = dis.cuda()
+        G = G.cuda()
+        D = D.cuda()
 
     # Logger
     dirname = os.path.dirname(os.path.realpath(__file__))
@@ -85,11 +86,11 @@ if __name__ == "__main__":
         print("Commit before running trackable experiments")
         exit(-1)
 
-    logger  = Logger(args.log_root, PROJECT_NAME, repo.commit().hexsha, args.comment, disable)
+    logger  = Logger(args.log_root, PROJECT_NAME,
+                     repo.commit().hexsha, args.comment, disable)
 
     # Trainer
-    model      = [enc, gen ,dis]
-    optimizer  = [enc_optimizer, gen_optimizer, dis_optimizer]
-    dataloader = [train_loader, val_loader]
-    trainer = Trainer(dataloader, model, optimizer, None, logger, args.cuda)
+    model      = [G, D]
+    optimizer  = [optimizer_G, optimizer_D]
+    trainer = Trainer(data_loader, model, optimizer, None, logger, args.cuda)
     trainer.run(args.epoch)

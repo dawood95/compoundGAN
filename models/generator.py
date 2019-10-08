@@ -122,11 +122,11 @@ class Generator(nn.Module):
             output_graphs[b].ndata['feats'] = pred_node_feats[b, :num_node]
 
             num_edge = (num_node * (num_node - 1)) + num_node
-            num_prede = len(pred_edge_feats)
+            num_prede = (num_node * (num_node - 1)) // 2
 
             edge_feats = torch.zeros((num_edge, edge_pred_seq.shape[-1]))
-            edge_feats[:num_prede] = pred_edge_feats[:, b, :]
-            edge_feats[num_prede:2*num_prede] = pred_edge_feats[:, b, :]
+            edge_feats[:num_prede] = pred_edge_feats[:num_prede, b, :]
+            edge_feats[num_prede:2*num_prede] = pred_edge_feats[:num_prede, b, :]
 
             edge_start = [j for i in range(num_node) for j in range(i)]
             edge_end = [i for i in range(num_node) for j in range(i)]

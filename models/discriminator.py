@@ -14,7 +14,9 @@ class Discriminator(nn.Module):
         self.gcn     = GCN(node_feats, edge_feats, out_feats, hidden_feats, bias)
         self.classifier = nn.Linear(out_feats, 1, bias)
 
-    def forward(self, G):
+    def forward(self, G, return_feat=False):
         feat = F.relu(self.gcn(G))
-        pred = self.classifier(feat)
-        return pred
+        if return_feat: return feat
+        else:
+            pred = self.classifier(feat)
+            return pred
