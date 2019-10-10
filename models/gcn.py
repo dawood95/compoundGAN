@@ -55,7 +55,7 @@ class MolConv(nn.Module):
             feat = feat + self.bias
 
         #feat = self.bn(feat)
-        feat = F.relu(feat)
+        feat = F.selu(feat)#F.relu(feat)
         return feat
 
 

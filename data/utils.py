@@ -11,7 +11,7 @@ class Library:
                  'Cl', 'Br', 'Mg', 'Na', 'Ca', 'Fe',\
                  'As', 'Al', 'I', 'B', 'V', 'K', 'Tl',\
                  'Yb', 'Sb', 'Sn', 'Ag', 'Pd', 'Co', \
-                 'Se', 'Ti', 'Zn', 'H', 'Li', 'Ge', 'Cu',\
+                 'Se', 'Ti', 'Zn', 'Li', 'Ge', 'Cu',\
                  'Au', 'Ni', 'Cd', 'In', 'Mn', 'Zr',\
                  'Cr', 'Pt', 'Hg', 'Pb']
     charge_list = [-3, -2, -1, 0, 1, 2, 3]
@@ -129,16 +129,25 @@ def bonds2vec(bonds):
     feats = [bond_emb, conjugated_emb, ring_emb, chirality_emb]
     feats = [onehot_noise(f.float()) for f in feats] # Add one-hot noise
     feats = torch.cat(feats, dim=1)
-    return feats.float()
 
-def mol2graph(mol, canonical=False):
+    no_edge_feat = [0, 0, 0, 0]
+    no_edge_feat = [torch.Tensor([i,]).long() for i in no_edge_feat]
+    no_edge_feat[0] = F.one_hot(no_edge_feat[0], len(bondtype_list)+1)
+    no_edge_feat[1] = F.one_hot(no_edge_feat[1], 2)
+    no_edge_feat[2] = F.one_hot(no_edge_feat[2], 2)
+    no_edge_feat[3] = F.one_hot(no_edge_feat[3], len(chirality_list))
+
+    return feats.float(), no_edge_feat
+
+def mol2graph(mol, canonical=False, max_len=np.inf):
     # Find Carbon index
     if canonical:
         bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
     else:
         carbon_atoms = []
         for i, atom in enumerate(mol.GetAtoms()):
-            if atom.GetSymbol() == 'C': carbon_atoms.append(i)
+            if atom.GetSymbol() == 'C':
+                carbon_atoms.append(i)
         bfs_root = random.choice(carbon_atoms)
 
     ''' or Dont
@@ -153,7 +162,7 @@ def mol2graph(mol, canonical=False):
 
     # Get feats
     atom_feats = atoms2vec(atoms)
-    bond_feats = bonds2vec(bonds)
+    bond_feats, no_edge_feats = bonds2vec(bonds)
 
     # Crete graph to find BFS order
     dummyG = dgl.DGLGraph()
@@ -164,10 +173,12 @@ def mol2graph(mol, canonical=False):
     # Get BFS node sequence
     atom_seq = torch.cat(dgl.bfs_nodes_generator(dummyG, bfs_root))
     atom_seq = [i.item() for i in atom_seq]
+    if max_len < np.inf:
+        atom_seq = atom_seq[:max_len]
 
     # Create BFS-representation graph
     G = dgl.DGLGraph()
-    num_nodes = len(atoms) + 1
+    num_nodes = len(atom_seq) + 1
     num_edges = (num_nodes * (num_nodes - 1)) + num_nodes # + for self loop
     node_feats = torch.zeros((num_nodes, atom_feats.shape[-1]))
     edge_feats = torch.zeros((num_edges, bond_feats.shape[-1]))
@@ -185,17 +196,34 @@ def mol2graph(mol, canonical=False):
                 bond_id = dummyG.edge_id(s, e)
                 edge_feats[edge_num] = bond_feats[bond_id].clone()
                 edge_feats[edge_num + 1] = bond_feats[bond_id].clone()
+            else:
+                dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+                dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+                edge_feats[edge_num] = dummy_feats.clone()
+                edge_feats[edge_num + 1] = dummy_feats.clone()
             G.add_edge(i, j)
             G.add_edge(j, i)
             edge_num += 2
+
+        dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+        dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+        edge_feats[edge_num] = dummy_feats.clone()
         G.add_edge(i, i)
         edge_num += 1
 
     # Add feats for stop node
     node_feats[-1] = atom_feats[-1].clone()
     for j in range(len(atom_seq)):
+        dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+        dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+        edge_feats[edge_num] = dummy_feats.clone()
+        edge_feats[edge_num+1] = dummy_feats.clone()
         G.add_edge(j, len(atom_seq))
         G.add_edge(len(atom_seq), j)
+        edge_num += 2
+    dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+    dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+    edge_feats[edge_num] = dummy_feats.clone()
     G.add_edge(len(atom_seq), len(atom_seq))
 
     # set feats to graph

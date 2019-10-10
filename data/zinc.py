@@ -18,11 +18,12 @@ class ZINC250K(data.Dataset):
         data = pd.read_csv(data_file)
         data = list(data['smiles'])
         self.data = data
+        self.max_seq_len = np.inf
 
     def __getitem__(self, idx):
         smiles = self.data[idx]
         mol = Chem.MolFromSmiles(smiles)
-        G = mol2graph(mol)
+        G = mol2graph(mol, max_len=self.max_seq_len)
         return G
 
     def __len__(self):

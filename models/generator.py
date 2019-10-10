@@ -4,6 +4,7 @@ import numpy as np
 
 from torch import nn
 from torch.nn import functional as F
+import random
 
 from .decoder_cell import DecoderCell
 
@@ -42,14 +43,13 @@ class Generator(nn.Module):
 
         batch_size = z.shape[0]
 
-        output_graphs = [dgl.DGLGraph() for _ in range(batch_size)]
         num_nodes     = -1*torch.ones(batch_size)
         num_nodes     = num_nodes.cuda() if z.is_cuda else num_nodes
 
         ctx = []
         for l in self.latent_project:
             x = l(z)
-            x = F.relu(x)
+            x = F.selu(x)
             ctx.append(x.unsqueeze(0))
         ctx = torch.cat(ctx, 0)
 
@@ -113,9 +113,18 @@ class Generator(nn.Module):
             if (num_nodes != -1).all(): break
 
         pred_node_feats = torch.cat(pred_node_feats, 1)
-        pred_edge_feats = torch.cat(pred_edge_feats, 0)
 
-        num_nodes[num_nodes == -1] = i+1
+        if len(pred_edge_feats) > 0:
+            pred_edge_feats = torch.cat(pred_edge_feats, 0)
+
+        num_nodes[num_nodes == -1] = pred_node_feats.shape[1]
+
+        return num_nodes, pred_node_feats, pred_edge_feats
+
+    def create_graph(self, num_nodes, pred_node_feats, pred_edge_feats):
+        batch_size = pred_node_feats.shape[0]
+
+        output_graphs = [dgl.DGLGraph() for _ in range(batch_size)]
         for b in range(batch_size):
             num_node = int(num_nodes[b].item())
             output_graphs[b].add_nodes(num_node)
@@ -124,7 +133,9 @@ class Generator(nn.Module):
             num_edge = (num_node * (num_node - 1)) + num_node
             num_prede = (num_node * (num_node - 1)) // 2
 
-            edge_feats = torch.zeros((num_edge, edge_pred_seq.shape[-1]))
+            if len(pred_edge_feats) == 0: continue
+
+            edge_feats = torch.zeros((num_edge, pred_edge_feats.shape[-1]))
             edge_feats[:num_prede] = pred_edge_feats[:num_prede, b, :]
             edge_feats[num_prede:2*num_prede] = pred_edge_feats[:num_prede, b, :]
 
@@ -136,4 +147,6 @@ class Generator(nn.Module):
             output_graphs[b].add_edges(list(range(num_node)), list(range(num_node)))
             output_graphs[b].edata['feats'] = edge_feats
 
-        return dgl.batch(output_graphs)
+        G = dgl.batch(output_graphs)
+        G.to(pred_node_feats.device)
+        return G

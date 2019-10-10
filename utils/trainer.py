@@ -11,10 +11,12 @@ class Trainer:
 
     def __init__(self, data, model, optimizer, scheduler, logger, cuda=False):
 
-        self.datagen               = self.load_data(data) # Infinite data loading
+        self.dataloader            = data
+        self.datagen               = self.load_data() # Infinite data loading
         self.G, self.D             = model
         self.optim_G, self.optim_D = optimizer
         self.scheduler             = scheduler
+        self.batch_size            = data.batch_size
         self.logger                = logger
         self.cuda                  = cuda
 
@@ -29,26 +31,53 @@ class Trainer:
         # from GT discriminator input
         self.max_nodes = 50
 
-        self.max_G_steps = 1000
-        self.max_D_steps = 1000
+        self.log_step    = 25
+        self.max_G_steps = 1
+        self.max_D_steps = 1
+        self.num_iters   = 1000
 
-        self.gp_lambda = 10
+        self.penalty_lambda = 1
+        self.max_seq_len = 4
+
+        self.clip_value = 0.01
 
         self.device = torch.device('cuda:0') if cuda else torch.device('cpu')
 
-    def load_data(self, dataloader):
+    def load_data(self):
         while True:
-            for data in dataloader:
+            for data in self.dataloader:
                 yield data
 
     def run(self, num_epoch):
-        for i in range(num_epoch):
-            print('EPOCH #%d\n'%(self.epoch))
 
-            with self.logger.experiment.train():
-                self.train_discriminator()
-                self.train_generator()
+        for e in range(num_epoch):
 
+            self.dataloader.dataset.max_seq_len = self.max_seq_len - 1
+
+            tqdm.write('Epoch %d'%(self.epoch))
+
+            total_wdist  = 0
+            total_gp     = 0
+            total_critic = 0
+            total_real = 0
+            total_fake = 0
+            for i in tqdm(range(self.num_iters)):
+                wdist, real, fake = self.train_discriminator()
+                critic = self.train_generator()
+
+                total_wdist += wdist
+                #total_gp += gp
+                total_real += real
+                total_fake += fake
+                total_critic += critic
+
+            total_wdist /= self.num_iters
+            #total_gp /= self.num_iters
+            total_critic /= self.num_iters
+            total_real /= self.num_iters
+            total_fake /= self.num_iters
+
+            #tqdm.write('Generator [Total] : Critic [%02.5e]'%(critic))
             '''
             kl_loss, pred_loss = self.train_vae()
             self.logger.experiment.log_metrics({
@@ -63,16 +92,23 @@ class Trainer:
                     'pred': pred_loss
                 }, prefix='VAE_total', step=(self.epoch))
             '''
-            self.save()
+            self.save(temp='model.weights')
 
             if self.scheduler: self.scheduler.step()
 
+            self.step_G = 0
+            self.step_D = 0
             self.epoch += 1
 
-    def save(self):
+            if (total_real + total_fake)/2 > 0:
+                self.max_seq_len *= 2
+
+            self.max_seq_len = min(50, self.max_seq_len)
+
+    def save(self, **kwargs):
         data = { 'G' : self.G.state_dict(),
                  'D' : self.D.state_dict(), }
-        self.logger.save('model_%d.weights'%self.epoch, data)
+        self.logger.save('model_%d.weights'%self.epoch, data, **kwargs)
 
     def detach_and_clone_graph(self, G):
         newG = dgl.batch([dgl.DGLGraph(_g._graph) for _g in dgl.unbatch(G)])
@@ -85,66 +121,149 @@ class Trainer:
         self.G.eval()
         self.D.train()
 
-        for i in tqdm(range(self.max_D_steps), desc='Discriminator'):
+        total_gp    = 0
+        total_wdist = 0
+        total_real = 0
+        total_fake = 0
+
+        for i in range(self.max_D_steps):
             # Fetch real batch
             real_G = next(self.datagen)
             real_G.to(self.device)
 
             # Fetch generated batch
             with torch.no_grad():
-                noise = torch.randn(real_G.batch_size, 128)
+                noise = torch.randn(self.batch_size, 128).uniform_()
                 noise = noise.to(self.device)
-                fake_G = self.G(noise)
-            fake_G = self.detach_and_clone_graph(fake_G) # just to be sure
+                fake_G = self.G.module.create_graph(*self.G(noise, self.max_seq_len))
+
+            #fake_G = self.detach_and_clone_graph(fake_G) # just to be sure
 
             # Discriminate
-            real_pred = self.D(real_G).mean()
-            fake_pred = self.D(fake_G).mean()
+            feat_real = self.D(real_G, return_feat=True)
+            feat_pred = self.D(fake_G, return_feat=True)
 
-            # Calculate gradient penalty
-            real_G_gp = self.detach_and_clone_graph(real_G)
-            fake_G_gp = self.detach_and_clone_graph(fake_G)
+            pred_real = self.D.classifier(feat_real)
+            pred_fake = self.D.classifier(feat_pred)
 
-            real_G_gp.ndata['feats'].requires_grad_(True)
-            real_G_gp.edata['feats'].requires_grad_(True)
-            fake_G_gp.ndata['feats'].requires_grad_(True)
-            fake_G_gp.edata['feats'].requires_grad_(True)
+            '''
+            # NOTE: This is kind of dumb to use maybe.
+            # Using distance between features instead of distance between graphs
+            # HOW DO WE GET DISTANCE BETWEEN GRAPHS
+            dist_norm = feat_real.detach() - feat_pred.detach()
+            dist_norm = (dist_norm**2).sum(1)**0.5
+            '''
 
-            real_feat = self.D(real_G_gp, return_feat=True)
-            fake_feat = self.D(fake_G_gp, return_feat=True)
+            wdist  = pred_fake.mean() - pred_real.mean() # minimize fake, maximize real
 
-            alpha = torch.zeros(real_feat.shape[0], 1).uniform_()
-            alpha = alpha.expand(real_feat.shape[0], real_feat.shape[1])
-            alpha = alpha.contiguous().to(self.device)
+            # For random pair of points, make sure the function is 'smooth'
+            '''
+            penalty = (pred_fake - pred_real)**2
+            penalty = penalty/(2*self.penalty_lambda*dist_norm) # minimize penalty
+            penalty = penalty.mean()
+            '''
 
-            interpolated_feat = alpha*real_feat + (1 - alpha)*fake_feat
-
-            interpolated_pred = self.D.classifier(interpolated_feat)
-
-            grad_output = torch.ones(interpolated_pred.size()).to(self.device)
-
-            gp_gradients = autograd.grad(
-                outputs = interpolated_pred,
-                inputs = [real_G_gp.ndata['feats'], real_G_gp.edata['feats'],
-                          fake_G_gp.ndata['feats'], fake_G_gp.edata['feats']],
-                grad_outputs = grad_output,
-                create_graph=True, retain_graph=True, only_inputs=True
-            )
-            gp_gradients = gp_gradients[0]
-            gp_gradients = gp_gradients.view(gp_gradients.shape[0], -1)
-
-            gradient_penalty = ((gp_gradients.norm(2, dim=1) - 1) ** 2).mean()
-            wdist = fake_pred - real_pred
-
-            loss = wdist + gradient_penalty
+            loss = wdist #+ penalty
 
             self.optim_D.zero_grad()
             loss.backward()
+
+            #torch.nn.utils.clip_grad_norm_(self.D.parameters(), 0.1)
+            for p in self.D.parameters():
+                p.data.clamp_(-self.clip_value, self.clip_value)
+
             self.optim_D.step()
+
+            self.step_D += 1
+
+            wdist = float(wdist.item())
+            #gp    = float(penalty.item())
+
+            pred_fake = pred_fake.mean().item()
+            pred_real = pred_real.mean().item()
+            total_wdist += wdist
+            total_real += pred_real
+            total_fake += pred_fake
+
+            #total_gp += gp
+
+            if self.step_D % self.log_step == 0:
+                step = (self.epoch * self.max_D_steps) + self.step_D
+                # Log this step's loss values
+                self.logger.experiment.log_metrics({
+                    'wasserstein_distance': wdist,
+                    #'gradient_penalty': gp,
+                }, step=step)
+                # Print em out
+                tqdm.write('Discriminator [%5d] [%3d] : WDist [%02.5e] | GP [%02.5e] | '
+                           'Real Value [%02.5e] | Fake Value [%02.5e]'%
+                           (self.step_D, self.max_seq_len, wdist, 0,
+                            pred_real, pred_fake))
+
+        # Average loss over num iters
+        total_wdist /= (i+1)
+        total_real /= (i+1)
+        total_fake /= (i+1)
+        #total_gp    /= (i+1)
+
+        #tqdm.write('Discriminator [Total] : WDist [%02.5e] | GP [%02.5e]'%
+        #           (total_wdist, total_gp))
+
+        return total_wdist, total_real, total_fake#, total_gp
 
 
     def train_generator(self):
-        raise NotImplementedError
+        self.G.train()
+        self.D.eval()
+        # NOTE: RNN backpass can only be done in train mode
+        # Other solution is to use a different pooling op
+        # Maybe, DIFFPOOL
+        self.D.gcn.pool.train()
+
+        total_critic = 0
+
+        for i in range(self.max_G_steps):
+
+            # Generate noise
+            noise = torch.randn(self.batch_size, 128).uniform_()
+            noise = noise.to(self.device)
+
+            # Generate graph from noise
+            fake_G = self.G.module.create_graph(*self.G(noise, self.max_seq_len))
+
+            # Find discriminator rating for generated graph
+            critic = self.D(fake_G).mean()
+
+            # Maximise discriminator rating
+            loss = -critic
+
+            # Step the optimizer for generator
+            self.optim_G.zero_grad()
+            loss.backward()
+
+            # clip gradients
+            torch.nn.utils.clip_grad_norm_(self.G.parameters(), 5)
+
+            self.optim_G.step()
+
+            self.step_G += 1
+
+            critic = float(critic.item())
+
+            total_critic += critic
+
+            if self.step_G % self.log_step == 0:
+                step = (self.epoch * self.max_G_steps) + self.step_G
+                self.logger.experiment.log_metrics({
+                    'critic': critic,
+                }, step=step)
+                tqdm.write('Generator [%5d] [%3d]: Critic [%02.5e]'%
+                           (self.step_G, self.max_seq_len, critic))
+
+        total_critic /= (i+1)
+        #tqdm.write('Generator [Total] : Critic [%02.5e]'%(critic))
+
+        return total_critic
 
     def train_vae(self):
 

@@ -15,7 +15,7 @@ class Discriminator(nn.Module):
         self.classifier = nn.Linear(out_feats, 1, bias)
 
     def forward(self, G, return_feat=False):
-        feat = F.relu(self.gcn(G))
+        feat = F.selu(self.gcn(G))
         if return_feat: return feat
         else:
             pred = self.classifier(feat)

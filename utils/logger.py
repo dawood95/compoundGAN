@@ -22,7 +22,10 @@ class Logger:
         self.experiment = experiment
         self.disabled   = disabled
 
-    def save(self, name, data):
+    def save(self, name, data, temp=None):
+        if temp is not None:
+            return torch.save(data, temp)
+
         # Save given data in log directory if not disabled
         if self.disabled: return
         torch.save(data, (self.log_dir / name).as_posix())
