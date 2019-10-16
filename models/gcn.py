@@ -24,12 +24,15 @@ class MolConv(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_feats))
         else:
             self.register_parameter('bias', None)
+        self.act = nn.SELU(True)#PReLU(out_feats)
+
+        self.bn = nn.BatchNorm1d(out_feats)
+
         self.reset_parameters()
-        #self.bn = nn.BatchNorm1d(out_feats)
 
     def reset_parameters(self):
         """Reinitialize learnable parameters."""
-        nn.init.xavier_uniform_(self.weight)
+        nn.init.xavier_normal_(self.weight)# xavier_uniform_(self.weight)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
@@ -54,8 +57,8 @@ class MolConv(nn.Module):
         if self.bias is not None:
             feat = feat + self.bias
 
-        #feat = self.bn(feat)
-        feat = F.selu(feat)#F.relu(feat)
+        # feat = self.bn(feat)
+        feat = self.act(feat)
         return feat
 
 

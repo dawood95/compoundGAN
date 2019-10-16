@@ -39,14 +39,14 @@ class DecoderCell(nn.Module):
         raise NotImplementedError
 
     def forward_unit(self, x):
-        self.lstm.flatten_parameters()
+        #self.lstm.flatten_parameters()
         s, h = self.lstm(x.unsqueeze(0), self.hidden)
         assert (s == h[-1]).all()
         self.hidden = h
         return h.sum(0)#s[0]
 
     def forward_seq(self, x):
-        self.lstm.flatten_parameters()
+        #self.lstm.flatten_parameters()
         s, h = self.lstm(x, self.hidden)
         seq_len, batch_size, _ = s.shape
         self.hidden = h

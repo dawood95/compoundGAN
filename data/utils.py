@@ -1,5 +1,6 @@
 import dgl
 import torch
+import math
 import random
 import numpy as np
 
@@ -139,7 +140,7 @@ def bonds2vec(bonds):
 
     return feats.float(), no_edge_feat
 
-def mol2graph(mol, canonical=False, max_len=np.inf):
+def mol2graph(mol, canonical=True, max_len=np.inf):
     # Find Carbon index
     if canonical:
         bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
@@ -174,6 +175,7 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
     atom_seq = torch.cat(dgl.bfs_nodes_generator(dummyG, bfs_root))
     atom_seq = [i.item() for i in atom_seq]
     if max_len < np.inf:
+        max_len = random.randint(1, max_len)
         atom_seq = atom_seq[:max_len]
 
     # Create BFS-representation graph
@@ -205,9 +207,9 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
             G.add_edge(j, i)
             edge_num += 2
 
-        dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
-        dummy_feats = torch.cat(dummy_feats, dim=1)[0]
-        edge_feats[edge_num] = dummy_feats.clone()
+        # dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+        # dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+        # edge_feats[edge_num] = dummy_feats.clone()
         G.add_edge(i, i)
         edge_num += 1
 
@@ -221,9 +223,10 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
         G.add_edge(j, len(atom_seq))
         G.add_edge(len(atom_seq), j)
         edge_num += 2
-    dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
-    dummy_feats = torch.cat(dummy_feats, dim=1)[0]
-    edge_feats[edge_num] = dummy_feats.clone()
+
+    # dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+    # dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+    # edge_feats[edge_num] = dummy_feats.clone()
     G.add_edge(len(atom_seq), len(atom_seq))
 
     # set feats to graph

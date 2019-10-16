@@ -22,7 +22,10 @@ class Generator(nn.Module):
 
         self.latent_project = nn.ModuleList()
         for i in range(num_layers):
-            self.latent_project.append(nn.Linear(latent_size, hidden_size, bias=True))
+            self.latent_project.append(nn.Sequential(
+                nn.Linear(latent_size, hidden_size, bias=True),
+                # nn.SELU(True),#PReLU(hidden_size),
+            ))
 
         self.node_cell = DecoderCell(input_size, hidden_size, num_layers, bias)
         self.edge_cell = DecoderCell(input_size, hidden_size, num_layers, bias)
@@ -39,6 +42,11 @@ class Generator(nn.Module):
         self.node_inp_size = input_size
         self.num_layers    = num_layers
 
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        return
+
     def forward(self, z, max_nodes=50):
 
         batch_size = z.shape[0]
@@ -49,7 +57,6 @@ class Generator(nn.Module):
         ctx = []
         for l in self.latent_project:
             x = l(z)
-            x = F.selu(x)
             ctx.append(x.unsqueeze(0))
         ctx = torch.cat(ctx, 0)
 

@@ -105,20 +105,20 @@ if __name__ == "__main__":
     # Optimizer
     optimizer_G = Adam(
         G.parameters(),
-        lr=args.lr,
+        lr=args.lr * 10,
         weight_decay=args.weight_decay,
         betas=(0.5, 0.999),
     )
     optimizer_D = Adam(
         D.parameters(),
-        lr=args.lr * 4,
+        lr=args.lr,
         weight_decay=args.weight_decay,
         betas=(0.5, 0.999),
     )
 
     # CUDA
     if args.cuda:
-        G = MyDataParallel(G).cuda()
+        G = G.cuda()
         D = D.cuda()
 
     # Logger
