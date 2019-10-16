@@ -36,7 +36,7 @@ class Trainer:
         self.num_iters   = 1000
 
         self.max_nodes = 50
-        self.seq_len = 3
+        self.seq_len = 4
         self.clip_value = 0.01
 
         self.device = torch.device('cuda:0') if cuda else torch.device('cpu')
@@ -94,7 +94,7 @@ class Trainer:
             self.step_D = 0
             self.epoch += 1
 
-            if self.epoch - last_update > 10:
+            if self.epoch - last_update > 20:
                 self.seq_len *= 2
                 last_update = self.epoch
             self.seq_len = min(self.max_nodes, self.seq_len)
@@ -118,6 +118,10 @@ class Trainer:
         for p in self.D.parameters():
             p.requires_grad = True
 
+        total_fake = 0
+        total_loss = 0
+        total_real = 0
+        
         for i in range(self.max_D_steps):
 
             # Real batch
