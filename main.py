@@ -92,7 +92,7 @@ if __name__ == "__main__":
                              drop_last=True)
 
     # Model
-    node_feats_num = [43, 7, 3, 3, 2]
+    node_feats_num = [43, 7, 3, 2]
     edge_feats_num = [5, 2, 2, 4]
     G = Generator(128, node_feats_num, edge_feats_num, 4)
     D = Discriminator(sum(node_feats_num), sum(edge_feats_num))
@@ -118,17 +118,13 @@ if __name__ == "__main__":
 
     # CUDA
     if args.cuda:
-        G = G.cuda()
+        G = G.cuda()#MyDataParallel(G).cuda()
         D = D.cuda()
 
     # Logger
     dirname = os.path.dirname(os.path.realpath(__file__))
     repo    = git.repo.Repo(dirname)
     disable = not args.track
-
-    if args.track and repo.is_dirty():
-        print("Commit before running trackable experiments")
-        exit(-1)
 
     logger  = Logger(args.log_root, PROJECT_NAME,
                      repo.commit().hexsha, args.comment, disable)

@@ -59,29 +59,35 @@ def atoms2vec(atoms):
         aromatic_idx.append(idx)
 
         # Chirality
-        try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
-        except: idx = len(Library.chirality_list)
-        chirality_idx.append(idx)
+        # try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
+        # except: idx = len(Library.chirality_list)
+        # chirality_idx.append(idx)
 
     atom_idx.append(len(Library.atom_list))
     charge_idx.append(3)
     electron_idx.append(0)
-    chirality_idx.append(2)
+    # chirality_idx.append(2)
     aromatic_idx.append(0)
 
     atom_idx      = torch.Tensor(atom_idx).long()
     charge_idx    = torch.Tensor(charge_idx).long()
     electron_idx  = torch.Tensor(electron_idx).long()
-    chirality_idx = torch.Tensor(chirality_idx).long()
+    # chirality_idx = torch.Tensor(chirality_idx).long()
     aromatic_idx  = torch.Tensor(aromatic_idx).long()
 
     atom_emb      = F.one_hot(atom_idx, len(Library.atom_list)+1)
     charge_emb    = F.one_hot(charge_idx, len(Library.charge_list))
     electron_emb  = F.one_hot(electron_idx, len(Library.electron_list))
-    chirality_emb = F.one_hot(chirality_idx, len(Library.chirality_list)+1)
+    # chirality_emb = F.one_hot(chirality_idx, len(Library.chirality_list)+1)
     aromatic_emb  = F.one_hot(aromatic_idx, 2)
 
-    feats = [atom_emb, charge_emb, electron_emb, chirality_emb, aromatic_emb]
+    feats = [
+        atom_emb,
+        charge_emb,
+        electron_emb,
+        #chirality_emb,
+        aromatic_emb
+    ]
     feats = [onehot_noise(f.float()) for f in feats] # Add one-hot noise
     feats = torch.cat(feats, dim=1)
     return feats
@@ -140,7 +146,7 @@ def bonds2vec(bonds):
 
     return feats.float(), no_edge_feat
 
-def mol2graph(mol, canonical=True, max_len=np.inf):
+def mol2graph(mol, canonical=False, max_len=np.inf):
     # Find Carbon index
     if canonical:
         bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
@@ -175,7 +181,7 @@ def mol2graph(mol, canonical=True, max_len=np.inf):
     atom_seq = torch.cat(dgl.bfs_nodes_generator(dummyG, bfs_root))
     atom_seq = [i.item() for i in atom_seq]
     if max_len < np.inf:
-        max_len = random.randint(1, max_len)
+        # max_len = random.randint(1, max_len)
         atom_seq = atom_seq[:max_len]
 
     # Create BFS-representation graph

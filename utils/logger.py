@@ -24,7 +24,7 @@ class Logger:
 
     def save(self, name, data, temp=None):
         if temp is not None:
-            return torch.save(data, temp)
+            torch.save(data, temp)
 
         # Save given data in log directory if not disabled
         if self.disabled: return
