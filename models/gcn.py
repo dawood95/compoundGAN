@@ -24,15 +24,15 @@ class MolConv(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_feats))
         else:
             self.register_parameter('bias', None)
-        self.act = nn.SELU(True)#PReLU(out_feats)
+        self.act = nn.SELU(True)
 
-        self.bn = nn.BatchNorm1d(out_feats)
-
+        # self.bn = nn.BatchNorm1d(out_feats)
         self.reset_parameters()
 
     def reset_parameters(self):
         """Reinitialize learnable parameters."""
-        nn.init.xavier_normal_(self.weight)# xavier_uniform_(self.weight)
+        nn.init.xavier_normal_(self.weight)
+        #nn.init.xavier_uniform_(self.weight)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
@@ -80,7 +80,7 @@ class GCN(nn.Module):
         # Conv might not neccessarily cover entire graph.
         # Look at all embbedding to form a 'compound' embedding
         #self.pool = dgl_nn.glob.AvgPooling()#
-        self.pool = dgl_nn.glob.Set2Set(feats, 2, 2)
+        self.pool = dgl_nn.glob.Set2Set(feats, 4, 4)
         feats = feats * 2
         self.fc   = nn.Linear(feats, out_feats, bias=bias)
 

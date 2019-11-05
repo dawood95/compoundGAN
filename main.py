@@ -26,7 +26,7 @@ parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--weight-decay', type=float, default=0)
+parser.add_argument('--weight-decay', type=float, default=1e-6)
 
 parser.add_argument('--pretrained', type=str, default='')
 parser.add_argument('--cuda', action='store_true', default=False)
@@ -40,14 +40,19 @@ class MyDataParallel(torch.nn.DataParallel):
         num_nodes = []
         node_feats = []
         edge_feats = []
+        node_logprobs = []
+        edge_logprobs = []
         max_seq_len = 0
         max_nodes = 0
-        for num_node, node_feat, edge_feat in outputs:
+        for d in outputs:
+            num_node, node_feat, edge_feat, node_logprob, edge_logprob = d
             num_nodes.append(num_node)
+            node_logprobs.append(node_logprob)
+            edge_logprobs.append(edge_logprob)
             node_feats.append(node_feat)
-            if len(edge_feat) > 0:
-                edge_feats.append(edge_feat)
-                max_seq_len = max(max_seq_len, len(edge_feat))
+            assert len(edge_feat) > 0, 'ERROR'
+            edge_feats.append(edge_feat)
+            max_seq_len = max(max_seq_len, len(edge_feat))
 
             max_nodes = max(max_nodes, node_feat.shape[1])
 
@@ -57,18 +62,27 @@ class MyDataParallel(torch.nn.DataParallel):
             pad = torch.zeros(max_seq_len-s, b, f).to(edge_feats[i].device)
             edge_feats[i] = torch.cat((edge_feats[i], pad), 0)
 
+            s, b, f = edge_logprobs[i].shape
+            pad = torch.zeros(max_seq_len-s, b, f).to(edge_logprobs[i].device)
+            edge_logprobs[i] = torch.cat((edge_logprobs[i], pad), 0)
+
         for i in range(len(node_feats)):
             b, s, f = node_feats[i].shape
             if s == max_nodes: continue
             pad = torch.zeros(b, max_nodes-s, f).to(node_feats[i].device)
             node_feats[i] = torch.cat((node_feats[i], pad), 1)
 
+            b, s, f = node_logprobs[i].shape
+            pad = torch.zeros(b, max_nodes-s, f).to(node_logprobs[i].device)
+            node_logprobs[i] = torch.cat((node_logprobs[i], pad), 1)
+
         num_nodes = gather(num_nodes, output_device, dim=0)
         node_feats = gather(node_feats, output_device, dim=0)
-        if len(edge_feats) > 0:
-            edge_feats = gather(edge_feats, output_device, dim=1)
+        node_logprobs = gather(node_logprobs, output_device, dim=0)
+        edge_feats = gather(edge_feats, output_device, dim=1)
+        edge_logprobs = gather(edge_logprobs, output_device, dim=1)
 
-        return num_nodes, node_feats, edge_feats
+        return num_nodes, node_feats, edge_feats, node_logprobs, edge_logprobs
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -92,28 +106,28 @@ if __name__ == "__main__":
                              drop_last=True)
 
     # Model
-    node_feats_num = [43, 7, 3, 2]
+    node_feats_num = [43, 7, 3, 3, 2]
     edge_feats_num = [5, 2, 2, 4]
-    G = Generator(128, node_feats_num, edge_feats_num, 4)
+    G = Generator(256, node_feats_num, edge_feats_num, 4)
     D = Discriminator(sum(node_feats_num), sum(edge_feats_num))
 
     if args.pretrained:
         state_dict = torch.load(args.pretrained, map_location='cpu')
         G.load_state_dict(state_dict['G'])
-        D.load_state_dict(state_dict['D'])
+        # D.load_state_dict(state_dict['D'])
 
     # Optimizer
     optimizer_G = Adam(
         G.parameters(),
-        lr=args.lr * 10,
+        lr=args.lr,
         weight_decay=args.weight_decay,
-        betas=(0.5, 0.999),
+        # betas=(0.5, 0.999),
     )
     optimizer_D = Adam(
         D.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay,
-        betas=(0.5, 0.999),
+        # betas=(0.5, 0.999),
     )
 
     # CUDA

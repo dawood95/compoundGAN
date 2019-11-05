@@ -7,6 +7,8 @@ from torch import nn
 from torch import autograd
 from torch.nn import functional as F
 
+from .reward import RewardLoss
+
 class Trainer:
 
     def __init__(self, data, model, optimizer, scheduler, logger, cuda=False):
@@ -25,21 +27,20 @@ class Trainer:
         self.step_D = 0
         self.epoch  = 0
 
-        # Max nodes for generator. Can be used for curriculum maybe
-        # NOTE:
-        # If using for curriculim, then remember to drop nodes
-        # from GT discriminator input
-
         self.log_step    = 25
-        self.max_G_steps = 1
-        self.max_D_steps = 1
-        self.num_iters   = 1000
+        self.max_G_steps = 10
+        self.max_D_steps = 10
+        self.num_iters   = 1000 // min(self.max_G_steps, self.max_D_steps)
 
         self.max_nodes = 50
         self.seq_len = 4
         self.clip_value = 0.01
+        self.gumbel_temp = 0.1
+        self.min_gumbel_temp = 0.001
 
         self.device = torch.device('cuda:0') if cuda else torch.device('cpu')
+
+        self.reward_loss = RewardLoss(self.device)
 
     def load_data(self):
         while True:
@@ -48,9 +49,12 @@ class Trainer:
 
     def run(self, num_epoch):
         last_update = 0
+        update_thresh = 1
+
         for e in range(num_epoch):
 
-            self.dataloader.dataset.max_seq_len = self.seq_len - 1
+            self.dataloader.dataset.max_seq_len = self.seq_len
+            self.dataloader.dataset.gumbel_temp = self.gumbel_temp / 10
 
             tqdm.write('Epoch %d'%(self.epoch))
 
@@ -58,23 +62,47 @@ class Trainer:
             total_real = 0
             total_fake = 0
 
+            total_g_loss = 0
+            total_g_fake = 0
+            total_g_rl_loss = 0
+            total_g_reward = 0
             for i in tqdm(range(self.num_iters)):
                 loss, real, fake = self.train_discriminator()
-                self.train_generator()
+                g_loss, g_fake, g_rl_loss, g_reward = self.train_generator(True)
+                # self.train_generator()
+
                 total_real += real
                 total_fake += fake
                 total_loss += loss
 
+                total_g_loss += g_loss
+                total_g_fake += g_fake
+                total_g_rl_loss += g_rl_loss
+                total_g_reward  += g_reward
+
             total_loss /= (self.num_iters*self.max_D_steps)
             total_real /= (self.num_iters*self.max_D_steps)
             total_fake /= (self.num_iters*self.max_D_steps)
+
+            total_g_loss /= (self.num_iters*self.max_G_steps)
+            total_g_fake /= (self.num_iters*self.max_G_steps)
+            total_g_rl_loss /= (self.num_iters*self.max_G_steps)
+            total_g_reward  /= (self.num_iters*self.max_G_steps)
 
             self.logger.experiment.log_metrics({
                 'loss'      : total_loss,
                 'fake score': total_fake,
                 'real score': total_real,
                 'sequence_length': self.seq_len,
-            }, prefix='Total', step=(self.epoch))
+            }, prefix='D Total', step=(self.epoch))
+
+            self.logger.experiment.log_metrics({
+                'loss'      : total_g_loss,
+                'fake score': total_g_fake,
+                'dis loss'  : -total_g_fake,
+                'reward'    : total_g_reward,
+                'rl loss'   : total_g_rl_loss,
+            }, prefix='G Total', step=(self.epoch))
 
             '''
             with self.logger.experiment.validate():
@@ -85,7 +113,7 @@ class Trainer:
                 }, prefix='VAE_total', step=(self.epoch))
             '''
 
-            self.save(temp='model.weights')
+            self.save(temp='model-t.weights')
 
             if self.scheduler:
                 self.scheduler.step()
@@ -94,14 +122,20 @@ class Trainer:
             self.step_D = 0
             self.epoch += 1
 
-            if self.epoch - last_update > 20:
-                self.seq_len *= 2
+            if self.epoch - last_update >= update_thresh:
+                self.seq_len += 1
+                #update_thresh += 1
                 last_update = self.epoch
+
+            self.gumbel_temp = max(self.min_gumbel_temp, self.gumbel_temp * 0.90)
             self.seq_len = min(self.max_nodes, self.seq_len)
 
     def save(self, **kwargs):
         data = { 'G' : self.G.state_dict(),
-                 'D' : self.D.state_dict(), }
+                 'D' : self.D.state_dict(),
+                 'gumbel_temp': self.gumbel_temp,
+                 'seq_len': self.seq_len,
+                 'epoch': self.epoch }
         self.logger.save('model_%d.weights'%self.epoch, data, **kwargs)
 
     def detach_and_clone_graph(self, G):
@@ -121,7 +155,7 @@ class Trainer:
         total_fake = 0
         total_loss = 0
         total_real = 0
-        
+
         for i in range(self.max_D_steps):
 
             # Real batch
@@ -130,9 +164,10 @@ class Trainer:
 
             # Fake batch
             with torch.no_grad():
-                noise  = torch.randn(self.batch_size, 128).normal_(0, 1)
+                noise  = torch.randn(self.batch_size, 256).normal_(0, 1)
                 noise  = noise.to(self.device)
-                fake_G = self.G.create_graph(*self.G(noise, self.seq_len))
+                fake_G = self.G(noise, self.seq_len, self.gumbel_temp)
+                fake_G = self.G.create_graph(*fake_G)
 
             # Pred
             pred_real = self.D(real_G).mean()
@@ -161,7 +196,7 @@ class Trainer:
             total_loss += loss
 
             if self.step_D % self.log_step == 0:
-                step = (self.epoch * self.max_D_steps) + self.step_D
+                step = (self.epoch * self.max_D_steps  * self.num_iters) + self.step_D
                 # Log this step's loss values
                 self.logger.experiment.log_metrics({
                     'loss': loss,
@@ -176,34 +211,43 @@ class Trainer:
 
         return total_loss, total_real, total_fake
 
-    def train_generator(self):
+    def train_generator(self, rl=False):
 
         self.G.train()
         self.D.eval()
 
         # self.D.gcn.pool.train() # if using LSTM in discriminator
+        self.D.pool_layers.train()
 
         for p in self.D.parameters():
             p.requires_grad = False
 
         total_loss = 0
         total_fake = 0
-
+        total_reward = 0
+        total_rl_loss = 0
         for i in range(self.max_G_steps):
 
             # Generate noise
-            noise = torch.randn(self.batch_size, 128).normal_(0, 1)
+            noise = torch.randn(self.batch_size, 256).normal_(0, 1)
             noise = noise.to(self.device)
 
             # Generate graph from noise
-            fake_G = self.G.create_graph(*self.G(noise, self.seq_len))
+            fake_G = self.G(noise, self.seq_len, self.gumbel_temp)
+            fake_G = self.G.create_graph(*fake_G)
 
             # Find discriminator rating for generated graph
             pred_fake = self.D(fake_G)
             pred_fake = pred_fake.mean()
 
-            # Loss
-            loss = -1 * pred_fake
+            loss = -1*pred_fake
+            rl_loss = 0
+            rl_reward = 0
+
+            # RL loss
+            if rl:
+                rl_loss, rl_reward = self.reward_loss(fake_G)
+                loss += rl_loss
 
             # Step the optimizer for generator
             self.optim_G.zero_grad()
@@ -218,19 +262,29 @@ class Trainer:
 
             self.step_G += 1
 
+            if rl:
+                rl_loss = float(rl_loss.item())
+                rl_reward = float(rl_reward.item())
+
             loss = float(loss.item())
             pred_fake = float(pred_fake.item())
 
             total_fake += pred_fake
             total_loss += loss
+            total_reward += rl_reward
+            total_rl_loss += rl_loss
 
-            # if self.step_G % self.log_step == 0:
-            #     step = (self.epoch * self.max_G_steps) + self.step_G
-            #     self.logger.experiment.log_metrics({
-            #         'generator_score': pred_fake,
-            #     }, step=step)
-
-        return total_loss, total_fake
+            if self.step_G % self.log_step == 0:
+                step = (self.epoch * self.max_G_steps * self.num_iters) + self.step_G
+                self.logger.experiment.log_metrics({
+                    'generator_score': pred_fake,
+                    'Reward': rl_reward,
+                    'RL Loss': rl_loss,
+                }, step=step)
+                tqdm.write('Generator [%5d] [%3d] : Loss [%02.5e] | RL-Loss [%02.5e] |'
+                           ' RL-Reward [%02.5e]'%
+                           (self.step_G, self.seq_len, loss, rl_loss, rl_reward))
+        return total_loss, total_fake, total_rl_loss, total_reward
 
     def train_vae(self):
 

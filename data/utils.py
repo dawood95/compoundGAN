@@ -5,6 +5,7 @@ import random
 import numpy as np
 
 from torch.nn import functional as F
+from torch.distributions import RelaxedOneHotCategorical as gumbel
 from rdkit import Chem
 
 class Library:
@@ -15,14 +16,25 @@ class Library:
                  'Se', 'Ti', 'Zn', 'Li', 'Ge', 'Cu',\
                  'Au', 'Ni', 'Cd', 'In', 'Mn', 'Zr',\
                  'Cr', 'Pt', 'Hg', 'Pb']
+    max_bonds = [4, 3, 2, 6, 1, 4, 5,\
+                 1, 1, 2, 1, 2, 1,\
+                 5, 3, 1, 3, 5, 1, 3,\
+                 3, 5, 4, 3, 4, 5, \
+                 6, 4, 2, 1, 4, 4,\
+                 5, 4, 2, 3, 6, 4,\
+                 6, 6, 2, 4, 0] #0 for end node
     charge_list = [-3, -2, -1, 0, 1, 2, 3]
     electron_list = [0, 1, 2]
     chirality_list = ['R', 'S']
 
-def onehot_noise(vector, alpha=2.0):
+def onehot_noise(vector, temp):
     '''
     alpha: factor to control how far away one-hot goes
     '''
+
+    vector = gumbel(temp, probs=vector).sample()
+    return vector
+
     noise = torch.zeros_like(vector).uniform_()
     noise = (noise - 0.5) / (alpha*vector.shape[-1])
     clamp = random.random() * 1e-3
@@ -33,7 +45,7 @@ def onehot_noise(vector, alpha=2.0):
     vector = F.softmax(logits, -1)
     return vector
 
-def atoms2vec(atoms):
+def atoms2vec(atoms, temp):
     atom_idx      = []
     charge_idx    = []
     electron_idx  = []
@@ -59,40 +71,40 @@ def atoms2vec(atoms):
         aromatic_idx.append(idx)
 
         # Chirality
-        # try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
-        # except: idx = len(Library.chirality_list)
-        # chirality_idx.append(idx)
+        try: idx = Library.chirality_list.index(atom.GetProp('_CIPCode'))
+        except: idx = len(Library.chirality_list)
+        chirality_idx.append(idx)
 
     atom_idx.append(len(Library.atom_list))
     charge_idx.append(3)
     electron_idx.append(0)
-    # chirality_idx.append(2)
+    chirality_idx.append(2)
     aromatic_idx.append(0)
 
     atom_idx      = torch.Tensor(atom_idx).long()
     charge_idx    = torch.Tensor(charge_idx).long()
     electron_idx  = torch.Tensor(electron_idx).long()
-    # chirality_idx = torch.Tensor(chirality_idx).long()
+    chirality_idx = torch.Tensor(chirality_idx).long()
     aromatic_idx  = torch.Tensor(aromatic_idx).long()
 
     atom_emb      = F.one_hot(atom_idx, len(Library.atom_list)+1)
     charge_emb    = F.one_hot(charge_idx, len(Library.charge_list))
     electron_emb  = F.one_hot(electron_idx, len(Library.electron_list))
-    # chirality_emb = F.one_hot(chirality_idx, len(Library.chirality_list)+1)
+    chirality_emb = F.one_hot(chirality_idx, len(Library.chirality_list)+1)
     aromatic_emb  = F.one_hot(aromatic_idx, 2)
 
     feats = [
         atom_emb,
         charge_emb,
         electron_emb,
-        #chirality_emb,
+        chirality_emb,
         aromatic_emb
     ]
-    feats = [onehot_noise(f.float()) for f in feats] # Add one-hot noise
+    feats = [onehot_noise(f.float(), temp) for f in feats] # Add one-hot noise
     feats = torch.cat(feats, dim=1)
     return feats
 
-def bonds2vec(bonds):
+def bonds2vec(bonds, temp):
     bond_idx       = []
     conjugated_idx = []
     ring_idx       = []
@@ -134,7 +146,7 @@ def bonds2vec(bonds):
     chirality_emb  = F.one_hot(chirality_idx, len(chirality_list))
 
     feats = [bond_emb, conjugated_emb, ring_emb, chirality_emb]
-    feats = [onehot_noise(f.float()) for f in feats] # Add one-hot noise
+    feats = [onehot_noise(f.float(), temp) for f in feats] # Add one-hot noise
     feats = torch.cat(feats, dim=1)
 
     no_edge_feat = [0, 0, 0, 0]
@@ -146,15 +158,15 @@ def bonds2vec(bonds):
 
     return feats.float(), no_edge_feat
 
-def mol2graph(mol, canonical=False, max_len=np.inf):
+def mol2graph(mol, canonical=False, max_len=np.inf, temp=0.01):
     # Find Carbon index
     if canonical:
         bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
     else:
         carbon_atoms = []
         for i, atom in enumerate(mol.GetAtoms()):
-            if atom.GetSymbol() == 'C':
-                carbon_atoms.append(i)
+            # if atom.GetSymbol() == 'C':
+            carbon_atoms.append(i)
         bfs_root = random.choice(carbon_atoms)
 
     ''' or Dont
@@ -166,10 +178,10 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
     bonds      = list(mol.GetBonds())
     edge_start = [b.GetBeginAtomIdx() for b in bonds]
     edge_end   = [b.GetEndAtomIdx() for b in bonds]
-
+    
     # Get feats
-    atom_feats = atoms2vec(atoms)
-    bond_feats, no_edge_feats = bonds2vec(bonds)
+    atom_feats = atoms2vec(atoms, temp)
+    bond_feats, no_edge_feats = bonds2vec(bonds, temp)
 
     # Crete graph to find BFS order
     dummyG = dgl.DGLGraph()
@@ -180,24 +192,35 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
     # Get BFS node sequence
     atom_seq = torch.cat(dgl.bfs_nodes_generator(dummyG, bfs_root))
     atom_seq = [i.item() for i in atom_seq]
-    if max_len < np.inf:
-        # max_len = random.randint(1, max_len)
-        atom_seq = atom_seq[:max_len]
+
+    # END node check
+    end_node = 1 if len(atom_seq) < max_len else 0
+
+    # Reduce num atoms
+    if max_len < np.inf: atom_seq = atom_seq[:max_len]
 
     # Create BFS-representation graph
     G = dgl.DGLGraph()
-    num_nodes = len(atom_seq) + 1
-    num_edges = (num_nodes * (num_nodes - 1)) + num_nodes # + for self loop
+    num_nodes = len(atom_seq) + end_node
+
+    if num_nodes > 12:
+        num_edges = (12*11) + (num_nodes - 12)*24 + num_nodes
+    else:
+        num_edges = (num_nodes * (num_nodes - 1)) + num_nodes # + for self loop
+
     node_feats = torch.zeros((num_nodes, atom_feats.shape[-1]))
     edge_feats = torch.zeros((num_edges, bond_feats.shape[-1]))
+    edge_isgen = torch.zeros((num_edges,))
+
+    G.add_nodes(num_nodes)
 
     # Go through BFS ordering and fill in features
-    G.add_nodes(num_nodes)
     edge_num = 0
     for i in range(len(atom_seq)):
         # i + 1 for self loops
         node_feats[i] = atom_feats[atom_seq[i]].clone()
         for j in range(i):
+            if ((i > 12) and (j < (i - 12))): continue
             s = atom_seq[i]
             e = atom_seq[j]
             if dummyG.has_edge_between(s, e):
@@ -205,7 +228,7 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
                 edge_feats[edge_num] = bond_feats[bond_id].clone()
                 edge_feats[edge_num + 1] = bond_feats[bond_id].clone()
             else:
-                dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+                dummy_feats = [onehot_noise(f.float(), temp) for f in no_edge_feats]
                 dummy_feats = torch.cat(dummy_feats, dim=1)[0]
                 edge_feats[edge_num] = dummy_feats.clone()
                 edge_feats[edge_num + 1] = dummy_feats.clone()
@@ -216,28 +239,31 @@ def mol2graph(mol, canonical=False, max_len=np.inf):
         # dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
         # dummy_feats = torch.cat(dummy_feats, dim=1)[0]
         # edge_feats[edge_num] = dummy_feats.clone()
+        edge_isgen[edge_num] = -1
         G.add_edge(i, i)
         edge_num += 1
 
     # Add feats for stop node
-    node_feats[-1] = atom_feats[-1].clone()
-    for j in range(len(atom_seq)):
-        dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
-        dummy_feats = torch.cat(dummy_feats, dim=1)[0]
-        edge_feats[edge_num] = dummy_feats.clone()
-        edge_feats[edge_num+1] = dummy_feats.clone()
-        G.add_edge(j, len(atom_seq))
-        G.add_edge(len(atom_seq), j)
-        edge_num += 2
+    if end_node == 1:
+        node_feats[-1] = atom_feats[-1].clone()
+        for j in range(max(0,len(atom_seq)-12), len(atom_seq)):
+            dummy_feats = [onehot_noise(f.float(), temp) for f in no_edge_feats]
+            dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+            edge_feats[edge_num] = dummy_feats.clone()
+            edge_feats[edge_num+1] = dummy_feats.clone()
+            G.add_edge(j, len(atom_seq))
+            G.add_edge(len(atom_seq), j)
+            edge_num += 2
 
-    # dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
-    # dummy_feats = torch.cat(dummy_feats, dim=1)[0]
-    # edge_feats[edge_num] = dummy_feats.clone()
-    G.add_edge(len(atom_seq), len(atom_seq))
+        # dummy_feats = [onehot_noise(f.float()) for f in no_edge_feats]
+        # dummy_feats = torch.cat(dummy_feats, dim=1)[0]
+        # edge_feats[edge_num] = dummy_feats.clone()
+        G.add_edge(len(atom_seq), len(atom_seq))
 
     # set feats to graph
     G.ndata['feats'] = node_feats
     G.edata['feats'] = edge_feats
+    G.edata['isgen'] = edge_isgen
 
     # NOTE: Unlike before, we don't need to add self-loops here
     # or in graph convolution. Self-loops are intrinsic now.
