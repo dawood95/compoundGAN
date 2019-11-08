@@ -31,28 +31,23 @@ class ZINC250K(data.Dataset):
 
 #@profile
 def ZINC_collate(x):
-    #return None, None, None
-    graphs = []
-    atom_feats = []
-    bond_feats = []
-    for g, af, bf in x:
-        graphs.append(g)
-        atom_feats.append(af)
-        bond_feats.append(bf)
+    batch_size = len(x)
+    graphs, atom_feats, bond_feats = map(list, zip(*x))
+
     graphs = dgl.batch(graphs)
 
     max_seq_len = 0
     for bn in bond_feats:
         max_seq_len = max([len(bn), max_seq_len])
 
-    atom_targets = torch.ones((max_seq_len, len(atom_feats), af.shape[-1]))
+    atom_targets = torch.ones((max_seq_len, batch_size, atom_feats[-1].shape[-1]))
     atom_targets = -1 * atom_targets
     for b, af in enumerate(atom_feats):
         atom_targets[:len(af), b] = af
 
-    bond_targets = torch.ones((max_seq_len, len(bond_feats), max_seq_len-1, bf.shape[-1]))
+    bond_targets = torch.ones((max_seq_len, 12, batch_size, bond_feats[-1].shape[-1]))
     bond_targets = -1 * bond_targets
     for b, bf in enumerate(bond_feats):
-        bond_targets[:bf.shape[0], b, :bf.shape[1]] = bf
+        bond_targets[:bf.shape[0], :, b] = bf
 
     return graphs, atom_targets.long(), bond_targets.long()

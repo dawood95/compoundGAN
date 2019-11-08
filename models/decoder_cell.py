@@ -37,10 +37,10 @@ class DecoderCell(nn.Module):
         call the specific forward fn you want. For clarity
         '''
         raise NotImplementedError
-    
+
     def forward_unit(self, x):
         s, h = self.lstm(x.unsqueeze(0), self.hidden)
-        assert (s == h[-1]).all()
+        # assert (s == h[-1]).all()
         self.hidden = h
         return h.sum(0)#s[0]
 
@@ -49,4 +49,3 @@ class DecoderCell(nn.Module):
         seq_len, batch_size, _ = s.shape
         self.hidden = h
         return s
-

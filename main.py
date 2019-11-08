@@ -9,8 +9,7 @@ from copy import deepcopy
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler, Adam
 
-from models.encoder import Encoder, Discriminator
-from models.generator import Generator
+from models.network import CVAEF
 
 from data.zinc import ZINC250K, ZINC_collate
 from utils.trainer import Trainer
@@ -26,6 +25,23 @@ parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--weight-decay', type=float, default=0)
+
+parser.add_argument('--node-dims', type=list, default=[43, 7, 3, 3])
+parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
+
+parser.add_argument('--latent-dim', type=int, default=256)
+
+parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256])
+parser.add_argument('--cnf-context-dim', type=int, default=0)
+parser.add_argument('--cnf-T', type=float, default=1.0)
+parser.add_argument('--cnf-train-T', type=eval, default=True)
+
+parser.add_argument('--ode-solver', type=str, default='dopri5')
+parser.add_argument('--ode-atol', type=float, default=1e-5)
+parser.add_argument('--ode-rtol', type=float, default=1e-5)
+parser.add_argument('--ode-use-adjoint', action='store_true', default=True)
+
+parser.add_argument('--decoder-num-layers', type=int, default=4)
 
 parser.add_argument('--pretrained', type=str, default='')
 parser.add_argument('--cuda', action='store_true', default=False)
@@ -72,25 +88,26 @@ if __name__ == "__main__":
                             drop_last=True)
 
     # Model
-    enc = Encoder(59, 13, 256)
-    gen = Generator(256, [44, 7, 3, 3, 2], [5, 2, 2, 4])
-    dis = Discriminator(59, 13, 128)
+    model = CVAEF(args.node_dims, args.edge_dims, args.latent_dim,
+                  args.cnf_hidden_dims, args.cnf_context_dim,
+                  args.cnf_T, args.cnf_train_T,
+                  args.ode_solver, args.ode_atol, args.ode_rtol,
+                  args.ode_use_adjoint, args.decoder_num_layers)
 
     if args.pretrained:
         state_dict = torch.load(args.pretrained, map_location='cpu')
-        enc.load_state_dict(state_dict['enc_state_dict'])
-        gen.load_state_dict(state_dict['gen_state_dict'], strict=False)
+        model.load_state_dict(state_dict['parameters'])
 
     # Optimizer
-    enc_optimizer = Adam(enc.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    gen_optimizer = Adam(gen.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    dis_optimizer = Adam(dis.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = Adam(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay
+    )
 
     # CUDA
     if args.cuda:
-        enc = enc.cuda()
-        gen = gen.cuda()
-        dis = dis.cuda()
+        model = model.cuda()
 
     # Logger
     dirname = os.path.dirname(os.path.realpath(__file__))
@@ -101,11 +118,10 @@ if __name__ == "__main__":
         print("Commit before running trackable experiments")
         exit(-1)
 
-    logger  = Logger(args.log_root, PROJECT_NAME, repo.commit().hexsha, args.comment, disable)
+    logger = Logger(args.log_root, PROJECT_NAME,
+                    repo.commit().hexsha, args.comment, disable)
 
     # Trainer
-    model      = [enc, gen ,dis]
-    optimizer  = [enc_optimizer, gen_optimizer, dis_optimizer]
-    dataloader = [train_loader, val_loader]
-    trainer = Trainer(dataloader, model, optimizer, None, logger, args.cuda)
+    data_loaders = [train_loader, val_loader]
+    trainer = Trainer(data_loaders, model, optimizer, None, logger, args.cuda)
     trainer.run(args.epoch)

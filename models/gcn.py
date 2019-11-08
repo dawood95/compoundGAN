@@ -23,11 +23,15 @@ class MolConv(nn.Module):
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
-        #self.bn = nn.BatchNorm1d(out_feats)
+
+        self.act = nn.SELU(True)
+        self.bn  = nn.BatchNorm1d(out_feats)
+
+        self.reset_parameters()
 
     def reset_parameters(self):
         """Reinitialize learnable parameters."""
-        nn.init.xavier_uniform_(self.weight)
+        nn.init.xavier_normal_(self.weight)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
@@ -52,8 +56,9 @@ class MolConv(nn.Module):
         if self.bias is not None:
             feat = feat + self.bias
 
-        #feat = self.bn(feat)
-        feat = F.relu(feat)
+        feat = self.bn(feat)
+        feat = self.act(feat)
+
         return feat
 
 
@@ -77,12 +82,12 @@ class GCN(nn.Module):
         #self.pool = dgl_nn.glob.AvgPooling()#
         self.pool = dgl_nn.glob.Set2Set(feats, 2, 2)
         feats = feats * 2
-        self.fc   = nn.Linear(feats, out_feats, bias=bias)
+
+        assert out_feats == feats
 
     def forward(self, G):
         feat = G.ndata['feats']
         for l in self.layers:
             feat = l(G, feat)
         feat = self.pool(G, feat)
-        feat = self.fc(feat)
         return feat
