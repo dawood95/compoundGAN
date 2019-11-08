@@ -63,9 +63,9 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
-            if self.epoch - last_update >= update_thresh:
-                self.seq_len += 1
-                last_update = self.epoch
+            # if self.epoch - last_update >= update_thresh:
+            #     self.seq_len += 1
+            #     last_update = self.epoch
 
 
     def save(self, **kwargs):
@@ -166,7 +166,7 @@ class Trainer:
                 bond_y = bond_y.cuda(non_blocking=True)
 
             losses = self.model.calc_loss(G, atom_y, bond_y, self.seq_len)
-            recons_loss, entropy_loss, prior_loss = losses
+            recon_loss, entropy_loss, prior_loss = losses
             loss = recon_loss + entropy_loss + prior_loss
 
             self.vae_val_step += 1

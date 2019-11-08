@@ -59,7 +59,7 @@ class CVAEF(nn.Module):
         entropy_loss = -entropy
 
         w, delta_log_pw = self.cnf(z, None)
-        log_pw = self.stdnormal_logprob(w).sum(1, keepdim=True)
+        log_pw = self.stdnormal_logprob(w).mean(1, keepdim=True)
         log_pz = log_pw - delta_log_pw
         prior_loss = -log_pz.mean()
 
