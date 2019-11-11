@@ -55,7 +55,7 @@ class CVAEF(nn.Module):
         z = self.reparameterize(mu, logvar)
         reconstruction_loss = self.decoder.calc_loss(z, atom_y, bond_y, seq_len)
 
-        return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
+        # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
 
         entropy = self.gaussian_entropy(logvar).mean()
         entropy_loss = -entropy

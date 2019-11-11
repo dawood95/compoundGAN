@@ -120,13 +120,12 @@ def mol2graph(mol):
     # Find canonical start atom
     bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
     # bfs_root = randint(0, len(atoms) - 1) # NOTE: INVESTIGATE
-    
+
     # Kekulize to remove aromatic flags
     Chem.Kekulize(mol, clearAromaticFlags=True)
 
     atoms = list(mol.GetAtoms())
     bonds = list(mol.GetBonds())
-
     bond_start = [b.GetBeginAtomIdx() for b in bonds]
     bond_end   = [b.GetEndAtomIdx() for b in bonds]
 

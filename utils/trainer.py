@@ -22,8 +22,9 @@ class Trainer:
         self.cuda      = cuda
 
         self.epoch     = 0
-        self.seq_len   = np.inf
-        self.log_step  = 10
+        self.seq_len   = 4
+        self.log_step  = 25
+        self.prior_factor = 1e-2
 
         self.vae_train_step  = 0
         self.vae_val_step    = 0
@@ -34,8 +35,9 @@ class Trainer:
                 yield data
 
     def run(self, num_epoch):
-        update_thresh = 1
+        update_thresh = 10
         last_update   = self.epoch
+        loss_thresh = 0.20
 
         for i in range(num_epoch):
 
@@ -49,6 +51,9 @@ class Trainer:
                     'entropy' : entropy_loss,
                     'prior'   : prior_loss
                 }, prefix='VAE_total', step=(self.epoch))
+
+            if recon_loss < loss_thresh:
+                self.seq_len += 4
 
             with self.logger.experiment.validate():
                 recon_loss, entropy_loss, prior_loss = self.val_vae()
@@ -66,10 +71,15 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
+            '''
             if self.epoch - last_update >= update_thresh:
-                self.seq_len += 1
+                self.seq_len += 4
                 last_update   = self.epoch
+            '''
 
+            if self.seq_len > 32:
+                self.prior_factor = self.prior_factor * 1.1
+                self.prior_factor = min(1.0, self.prior_factor)
 
     def save(self, **kwargs):
         data = {
@@ -102,11 +112,13 @@ class Trainer:
 
             losses = self.model.calc_loss(G, atom_y, bond_y, self.seq_len)
             recon_loss, entropy_loss, prior_loss = losses
-            loss = recon_loss # + prior_loss + entropy_loss
+            loss = recon_loss
+            loss = loss + self.prior_factor*prior_loss
+            loss = loss + self.prior_factor*entropy_loss
 
             loss.backward()
             # clip gradients
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
             self.optim.step()
 
             self.vae_train_step += 1
