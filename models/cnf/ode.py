@@ -38,7 +38,7 @@ class ODEnet(nn.Module):
         super(ODEnet, self).__init__()
 
         base_layer   = diffeq_layers.ConcatSquashLinear
-        nonlinearity = nn.Tanh
+        nonlinearity = nn.Softplus
 
         layers = nn.ModuleList()
 

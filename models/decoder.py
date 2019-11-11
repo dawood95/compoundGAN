@@ -1,3 +1,4 @@
+import dgl
 import torch
 import numpy as np
 
@@ -24,7 +25,7 @@ class Decoder(nn.Module):
         for i in range(num_layers):
             self.latent_project.append(nn.Sequential(
                 nn.Linear(latent_size, hidden_size, bias=True),
-                #nn.SELU(True),
+                nn.SELU(True),
             ))
 
         self.node_cell = DecoderCell(node_input_size, hidden_size, num_layers, bias)
@@ -102,7 +103,7 @@ class Decoder(nn.Module):
                 continue
 
             # Generate edges
-            self.edge_cell.hidden += self.node_cell.hidden
+            self.edge_cell.hidden = self.node_cell.hidden
 
             # edgeRNN inputs
             prev_node_embeddings = node_embeddings[:0:-1][:12]
@@ -115,23 +116,23 @@ class Decoder(nn.Module):
             edge_emb_seq  = edge_emb_seq.view(-1, edge_emb_seq.shape[-1])
 
             edge_pred_seq = [c(edge_emb_seq) for c in self.edge_classifiers]
-            edge_pred_seq = [F.softmax(pred, -1) for p in edge_pred_seq]
+            edge_pred_seq = [F.softmax(p, -1) for p in edge_pred_seq]
 
             edge_types    = edge_pred_seq[0].argmax(-1)
 
             edge_pred_seq = torch.cat(edge_pred_seq, -1)
             edge_pred_seq = edge_pred_seq.view(len(x), batch_size, -1)
 
-            edge_types    = edge_types.view(len(edge_inp), batch_size)
+            edge_types    = edge_types.view(len(x), batch_size)
             edge_types    = edge_types.sum(0)
 
             pred_edge_feats.append(edge_pred_seq)
 
             # Reset node lstm state and set context
-            self.node_cell.hidden += self.edge_cell.hidden
+            self.node_cell.hidden = self.edge_cell.hidden
             node_embeddings.append(node_emb)
 
-            num_nodes[(edge_types == 0) & (num_nodes == -1)] = i + 1
+            # num_nodes[(edge_types == 0) & (num_nodes == -1)] = i + 1
             if (num_nodes != -1).all(): break
 
         pred_node_feats = torch.cat(pred_node_feats, 1)
@@ -240,7 +241,7 @@ class Decoder(nn.Module):
                 continue
 
             # Generate edges
-            self.edge_cell.hidden += self.node_cell.hidden
+            self.edge_cell.hidden = self.node_cell.hidden
 
             # edgeRNN inputs
             prev_node_embeddings = node_embeddings[:0:-1][:12]
@@ -258,13 +259,13 @@ class Decoder(nn.Module):
             edge_num   += x.shape[0]
 
             # Reset node lstm state and set context
-            self.node_cell.hidden += self.edge_cell.hidden
+            self.node_cell.hidden = self.edge_cell.hidden
             node_embeddings.append(node_emb)
 
             '''
-            if i % 10 == 0:
-                x = x.detach()
-                self.node_celli.detach()
+            if i % 12 == 0:
+                self.node_cell.detach()
+                self.edge_cell.detach()
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
 

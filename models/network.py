@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch import nn
-from math import pi
+from math import pi, log
 
 from .encoder import Encoder
 from .decoder import Decoder
@@ -34,13 +34,13 @@ class CVAEF(nn.Module):
 
     @staticmethod
     def gaussian_entropy(logvar):
-        const = 0.5 * float(logvar.size(-1)) * (1. + np.log(pi * 2))
+        const = 0.5 * float(logvar.size(-1)) * (1. + log(pi * 2))
         ent = 0.5 * logvar.sum(dim=-1, keepdim=False) + const
         return ent
 
     @staticmethod
     def stdnormal_logprob(z):
-        log_z = -0.5 * z.size(-1) * np.log(2 * pi)
+        log_z = -0.5 * z.size(-1) * log(2 * pi)
         return log_z - z.pow(2) / 2
 
     @staticmethod
@@ -55,11 +55,13 @@ class CVAEF(nn.Module):
         z = self.reparameterize(mu, logvar)
         reconstruction_loss = self.decoder.calc_loss(z, atom_y, bond_y, seq_len)
 
+        return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
+
         entropy = self.gaussian_entropy(logvar).mean()
         entropy_loss = -entropy
 
         w, delta_log_pw = self.cnf(z, None)
-        log_pw = self.stdnormal_logprob(w).mean(1, keepdim=True)
+        log_pw = self.stdnormal_logprob(w).sum(1, keepdim=True)
         log_pz = log_pw - delta_log_pw
         prior_loss = -log_pz.mean()
 

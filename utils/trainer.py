@@ -23,7 +23,7 @@ class Trainer:
 
         self.epoch     = 0
         self.seq_len   = np.inf
-        self.log_step  = 25
+        self.log_step  = 10
 
         self.vae_train_step  = 0
         self.vae_val_step    = 0
@@ -34,6 +34,9 @@ class Trainer:
                 yield data
 
     def run(self, num_epoch):
+        update_thresh = 1
+        last_update   = self.epoch
+
         for i in range(num_epoch):
 
             tqdm.write('EPOCH #%d\n'%(self.epoch))
@@ -63,9 +66,9 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
-            # if self.epoch - last_update >= update_thresh:
-            #     self.seq_len += 1
-            #     last_update = self.epoch
+            if self.epoch - last_update >= update_thresh:
+                self.seq_len += 1
+                last_update   = self.epoch
 
 
     def save(self, **kwargs):
@@ -88,6 +91,8 @@ class Trainer:
 
         for i, data in enumerate(tqdm(self.train_loader)):
 
+            self.optim.zero_grad()
+
             G, atom_y, bond_y = data
 
             if self.cuda:
@@ -97,13 +102,11 @@ class Trainer:
 
             losses = self.model.calc_loss(G, atom_y, bond_y, self.seq_len)
             recon_loss, entropy_loss, prior_loss = losses
-            loss = recon_loss + entropy_loss + prior_loss
+            loss = recon_loss # + prior_loss + entropy_loss
 
-            self.optim.zero_grad()
             loss.backward()
             # clip gradients
-            torch.nn.utils.clip_grad_norm_(self.model.encoder.parameters(), 1)
-            torch.nn.utils.clip_grad_norm_(self.model.decoder.parameters(), 1)
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
             self.optim.step()
 
             self.vae_train_step += 1

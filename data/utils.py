@@ -2,6 +2,7 @@ import dgl
 import torch
 import numpy as np
 
+from random import randint
 from torch.nn import functional as F
 from rdkit import Chem
 
@@ -116,11 +117,12 @@ def bonds2vec(bonds, repeat_bonds=True):
 
 #@profile
 def mol2graph(mol):
-    # Kekulize to remove aromatic flags
-    Chem.Kekulize(mol, clearAromaticFlags=True)
-
     # Find canonical start atom
     bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
+    # bfs_root = randint(0, len(atoms) - 1) # NOTE: INVESTIGATE
+    
+    # Kekulize to remove aromatic flags
+    Chem.Kekulize(mol, clearAromaticFlags=True)
 
     atoms = list(mol.GetAtoms())
     bonds = list(mol.GetBonds())
@@ -157,11 +159,12 @@ def mol2graph(mol):
             s = atom_seq[j]
             e = atom_seq[i]
             if ((i > 12) and (j < (i - 12))):
-                assert G.has_edge_between(s, e) == False, 'assumption wrong'
+                # assert G.has_edge_between(s, e) == False, 'assumption wrong'
                 continue
             if G.has_edge_between(s, e):
                 bond_id = G.edge_id(s, e)
-                allpair_bonds[i, j - (i - 12), :] = bond_targets[bond_id].clone()
+                _j = j - (i - 12) if (i - 12) > 0 else j
+                allpair_bonds[i, _j, :] = bond_targets[bond_id].clone()
 
     # Self loops
     G.add_edges(G.nodes(), G.nodes())
