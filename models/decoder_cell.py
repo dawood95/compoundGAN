@@ -2,34 +2,55 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from .lstm import script_lnlstm, LSTMState
+
 class DecoderCell(nn.Module):
 
-    def __init__(self, in_feats, hidden_feats, num_layers=4, bias=True):
+    def __init__(self, input_dim, hidden_dim, num_layers=4, bias=True):
         super().__init__()
 
-        self.lstm = nn.GRU(
+        self.lstm = script_lnlstm(input_dim, hidden_dim, num_layers, bias)
+        '''
+        nn.GRU(
             in_feats, hidden_feats, num_layers, bias
         )
+        '''
 
         self.num_layers = num_layers
-        self.hidden_feats = hidden_feats
+        self.hidden_dim = hidden_dim
 
-        self.hidden = None
+        self.state = None
 
-    def reset_hidden(self, batch_size):
-        cuda = next(self.lstm.parameters()).is_cuda
-        hidden = torch.zeros(self.num_layers, batch_size, self.hidden_feats)
-        hidden = hidden.cuda() if cuda else hidden
-        self.hidden = hidden
+    def reset_state(self, batch_size):
+        device = next(self.lstm.parameters()).device
+        state  = [
+            (torch.zeros(batch_size, self.hidden_dim).to(device),
+             torch.zeros(batch_size, self.hidden_dim).to(device))
+            for _ in range(self.num_layers)
+        ]
+        self.state = state
         return
 
     def set_context(self, context):
-        for l in range(self.num_layers):
-            assert(self.hidden[l].shape == context.shape)
-            self.hidden[l] = context
+        new_state = []
+        for i in range(self.num_layers):
+            new_state.append((self.state[i][0], context[i]))
+            # self.state[i][1] = context[i]
+        self.state = new_state
+
+    def set_hidden(self, hidden):
+        new_state = []
+        for i in range(self.num_layers):
+            new_state.append((hidden[i], self.state[i][1]))
+        self.state = new_state
+
+    def get_hidden(self):
+        return [s[0] for s in self.state]
 
     def detach(self):
-        self.hidden = self.hidden.detach()
+        for s in self.state:
+            s[0].detach_()
+            s[1].detach_()
         return
 
     def forward(self):
@@ -39,13 +60,11 @@ class DecoderCell(nn.Module):
         raise NotImplementedError
 
     def forward_unit(self, x):
-        s, h = self.lstm(x.unsqueeze(0), self.hidden)
-        # assert (s == h[-1]).all()
-        self.hidden = h
-        return h.sum(0)#s[0]
+        y, new_state = self.lstm(x.unsqueeze(0), self.state)
+        self.state = new_state
+        return sum([h for (h, c) in new_state])
 
     def forward_seq(self, x):
-        s, h = self.lstm(x, self.hidden)
-        seq_len, batch_size, _ = s.shape
-        self.hidden = h
-        return s
+        y, new_state = self.lstm(x, self.state)
+        self.state = new_state
+        return y

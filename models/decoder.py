@@ -25,11 +25,14 @@ class Decoder(nn.Module):
         for i in range(num_layers):
             self.latent_project.append(nn.Sequential(
                 nn.Linear(latent_size, hidden_size, bias=True),
+                nn.BatchNorm1d(hidden_size),
                 nn.SELU(True),
             ))
 
-        self.node_cell = DecoderCell(node_input_size, hidden_size, num_layers, bias)
-        self.edge_cell = DecoderCell(edge_input_size, hidden_size, num_layers, bias)
+        self.node_cell = DecoderCell(node_input_size, hidden_size,
+                                     num_layers, bias)
+        self.edge_cell = DecoderCell(edge_input_size, hidden_size,
+                                     num_layers, bias)
 
         self.node_classifiers = nn.ModuleList()
         self.edge_classifiers = nn.ModuleList()
@@ -39,7 +42,7 @@ class Decoder(nn.Module):
         for feat_size in edge_feats:
             self.edge_classifiers.append(nn.Linear(hidden_size, feat_size, bias))
 
-        self.end_node      = node_feats[0]-1
+        self.end_node      = node_feats[0] - 1
         self.node_inp_size = node_input_size
         self.one_hot_sizes = node_feats
 
@@ -52,15 +55,16 @@ class Decoder(nn.Module):
         num_nodes = num_nodes.to(z)
 
         # reset context
-        self.node_cell.reset_hidden(batch_size)
-        self.edge_cell.reset_hidden(batch_size)
+        self.node_cell.reset_state(batch_size)
+        self.edge_cell.reset_state(batch_size)
 
         # layerwise latent variable projection
         latent_context = [l(z).unsqueeze(0) for l in self.latent_project]
         latent_context = torch.cat(latent_context, 0)
 
-        # set nodeRNN context
-        self.node_cell.hidden = latent_context
+        # set context
+        self.node_cell.set_context(latent_context)
+        self.edge_cell.set_context(latent_context)
 
         pred_node_feats = []
         pred_edge_feats = []
@@ -103,7 +107,7 @@ class Decoder(nn.Module):
                 continue
 
             # Generate edges
-            self.edge_cell.hidden = self.node_cell.hidden
+            self.edge_cell.set_hidden(self.node_cell.get_hidden())
 
             # edgeRNN inputs
             prev_node_embeddings = node_embeddings[:0:-1][:12]
@@ -129,7 +133,7 @@ class Decoder(nn.Module):
             pred_edge_feats.append(edge_pred_seq)
 
             # Reset node lstm state and set context
-            self.node_cell.hidden = self.edge_cell.hidden
+            self.node_cell.set_hidden(self.edge_cell.get_hidden())
             node_embeddings.append(node_emb)
 
             # num_nodes[(edge_types == 0) & (num_nodes == -1)] = i + 1
@@ -149,7 +153,7 @@ class Decoder(nn.Module):
             G[b].ndata['feats'] = pred_node_feats[b, :num_node]
 
             if num_node > 12:
-                num_edge = ((12 // 2) * 11) + ((num_node - 12) * 24)
+                num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
             else:
                 num_edge = (num_node * (num_node - 1))//2
 
@@ -191,15 +195,16 @@ class Decoder(nn.Module):
         max_seq_length = min(seq_length, max_nodes)
 
         # reset context
-        self.node_cell.reset_hidden(batch_size)
-        self.edge_cell.reset_hidden(batch_size)
+        self.node_cell.reset_state(batch_size)
+        self.edge_cell.reset_state(batch_size)
 
         # layerwise latent variable projection
         latent_context = [l(z).unsqueeze(0) for l in self.latent_project]
         latent_context = torch.cat(latent_context, 0)
 
-        # set nodeRNN context
-        self.node_cell.hidden = latent_context
+        # set context
+        self.node_cell.set_context(latent_context)
+        self.edge_cell.set_context(latent_context)
 
         # Node and Edge Loss
         node_loss = 0
@@ -241,7 +246,7 @@ class Decoder(nn.Module):
                 continue
 
             # Generate edges
-            self.edge_cell.hidden = self.node_cell.hidden
+            self.edge_cell.set_hidden(self.node_cell.get_hidden())
 
             # edgeRNN inputs
             prev_node_embeddings = node_embeddings[:0:-1][:12]
@@ -255,11 +260,11 @@ class Decoder(nn.Module):
             edge_pred_seq = [c(edge_emb_seq) for c in self.edge_classifiers]
 
             edge_target = bond_target[i, :len(x)].view(-1, bond_target.shape[-1])
-            edge_loss  += self.calc_edge_loss(edge_pred_seq, edge_target)/batch_size
+            edge_loss  += self.calc_edge_loss(edge_pred_seq, edge_target)
             edge_num   += x.shape[0]
 
             # Reset node lstm state and set context
-            self.node_cell.hidden = self.edge_cell.hidden
+            self.node_cell.set_hidden(self.edge_cell.get_hidden())
             node_embeddings.append(node_emb)
 
             '''
@@ -273,7 +278,7 @@ class Decoder(nn.Module):
         if node_num > 0:
             recon_loss += node_loss/node_num
         if edge_num > 0:
-            recon_loss += edge_loss/edge_num
+            recon_loss += edge_loss/(batch_size*edge_num)
         if node_num + edge_num == 0: raise ValueError
 
         return recon_loss

@@ -6,8 +6,10 @@ import comet_ml
 import torch
 
 from copy import deepcopy
+from torch import distributed as dist
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler, Adam
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from models.network import CVAEF
 
@@ -49,18 +51,30 @@ parser.add_argument('--track', action='store_true', default=False)
 parser.add_argument('--comment', type=str, default='')
 
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--global-rank', type=int)
 
-#torch.multiprocessing.set_sharing_strategy('file_system')
+# for torch distributed launch
+parser.add_argument('--local_rank', type=int)
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
     PROJECT_NAME = 'compound-gan'
 
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    # Is this the master process?
+    is_master = (args.global_rank == 0) and (args.local_rank == 0)
+
+    # different seed for different processes
+    rank_seed = '%d%d'%(args.global_rank, args.local_rank)
+    rank_seed = int(rank_seed)
+    seed = args.seed + rank_seed
+
+    random.seed(seed)
+    torch.manual_seed(seed)
     if args.cuda:
-        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed(seed)
+
+    dist.init_process_group(dist.Backend.NCCL)
 
     # Dataloader
     dataset = ZINC250K(args.data_file)
@@ -72,12 +86,12 @@ if __name__ == "__main__":
     val_dataset.data   = val_dataset.data[split_len:]
 
     train_loader = DataLoader(train_dataset,
-                            batch_size=args.batch_size,
-                            shuffle=True,
-                            num_workers=args.num_workers,
-                            collate_fn=ZINC_collate,
-                            pin_memory=args.cuda,
-                            drop_last=True)
+                              batch_size=args.batch_size,
+                              shuffle=True,
+                              num_workers=args.num_workers,
+                              collate_fn=ZINC_collate,
+                              pin_memory=args.cuda,
+                              drop_last=True)
 
     val_loader = DataLoader(val_dataset,
                             batch_size=args.batch_size,
@@ -98,6 +112,15 @@ if __name__ == "__main__":
         state_dict = torch.load(args.pretrained, map_location='cpu')
         model.load_state_dict(state_dict['parameters'])
 
+    # CUDA
+    device = torch.device('cpu')
+    if args.cuda: device = torch.device('cuda', args.local_rank)
+
+    model = model.to(device)
+    model = DDP(model,
+                device_ids=[args.local_rank],
+                output_device=args.local_rank)
+
     # Optimizer
     optimizer = Adam(
         model.parameters(),
@@ -105,19 +128,16 @@ if __name__ == "__main__":
         weight_decay=args.weight_decay
     )
 
-    # CUDA
-    if args.cuda:
-        model = model.cuda()
-
     # Logger
     dirname = os.path.dirname(os.path.realpath(__file__))
     repo    = git.repo.Repo(dirname)
-    disable = not args.track
+    track   = args.track and is_master
 
     logger = Logger(args.log_root, PROJECT_NAME,
-                    repo.commit().hexsha, args.comment, disable)
+                    repo.commit().hexsha, args.comment, (not track))
 
     # Trainer
     data_loaders = [train_loader, val_loader]
-    trainer = Trainer(data_loaders, model, optimizer, None, logger, args.cuda)
+    trainer = Trainer(data_loaders, model, optimizer, None, logger, device,
+                      is_master)
     trainer.run(args.epoch)
