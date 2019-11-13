@@ -21,10 +21,10 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 4
+        self.seq_len      = 8
         self.log_step     = 25
         self.prior_factor = 1e-2
-        self.recon_thresh = 0.20
+        self.recon_thresh = 0.30
 
         self.vae_train_step  = 0
         self.vae_val_step    = 0
@@ -49,7 +49,7 @@ class Trainer:
                 }, prefix='VAE_total', step=(self.epoch))
 
             if recon_loss < self.recon_thresh:
-                self.seq_len += 4
+                self.seq_len += 1
 
             with self.logger.experiment.validate():
                 recon_loss, entropy_loss, prior_loss = self.val_vae()

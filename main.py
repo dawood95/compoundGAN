@@ -7,7 +7,7 @@ import torch
 
 from copy import deepcopy
 from torch import distributed as dist
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, distributed
 from torch.optim import lr_scheduler, Adam
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -85,19 +85,23 @@ if __name__ == "__main__":
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
 
+    train_sampler = distributed.DistributedSampler(train_dataset)
     train_loader = DataLoader(train_dataset,
                               batch_size=args.batch_size,
-                              shuffle=True,
+                              shuffle=False,
                               num_workers=args.num_workers,
                               collate_fn=ZINC_collate,
+                              sampler=train_sampler,
                               pin_memory=args.cuda,
                               drop_last=True)
 
+    val_sampler = distributed.DistributedSampler(val_dataset)
     val_loader = DataLoader(val_dataset,
                             batch_size=args.batch_size,
                             shuffle=False,
                             num_workers=args.num_workers,
                             collate_fn=ZINC_collate,
+                            sampler=val_sampler,
                             pin_memory=args.cuda,
                             drop_last=True)
 
