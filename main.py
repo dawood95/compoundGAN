@@ -31,9 +31,9 @@ parser.add_argument('--weight-decay', type=float, default=0)
 parser.add_argument('--node-dims', type=list, default=[43, 7, 3, 3])
 parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
 
-parser.add_argument('--latent-dim', type=int, default=256)
+parser.add_argument('--latent-dim', type=int, default=128)
 
-parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256])
+parser.add_argument('--cnf-hidden-dims', type=list, default=[128, 192, 256])
 parser.add_argument('--cnf-context-dim', type=int, default=0)
 parser.add_argument('--cnf-T', type=float, default=1.0)
 parser.add_argument('--cnf-train-T', type=eval, default=True)
@@ -140,8 +140,10 @@ if __name__ == "__main__":
     logger = Logger(args.log_root, PROJECT_NAME,
                     repo.commit().hexsha, args.comment, (not track))
 
+    scheduler = lr_scheduler.ExponentialLR(optimizer, 0.99)
+
     # Trainer
     data_loaders = [train_loader, val_loader]
-    trainer = Trainer(data_loaders, model, optimizer, None, logger, device,
+    trainer = Trainer(data_loaders, model, optimizer, scheduler, logger, device,
                       is_master)
     trainer.run(args.epoch)

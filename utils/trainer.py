@@ -1,4 +1,5 @@
 import torch
+import time
 import numpy as np
 from tqdm import tqdm
 
@@ -21,7 +22,7 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 8
+        self.seq_len      = 12
         self.log_step     = 25
         self.prior_factor = 1e-2
         self.recon_thresh = 0.30
@@ -36,6 +37,7 @@ class Trainer:
 
     def run(self, num_epoch):
         for i in range(num_epoch):
+            torch.distributed.barrier()
 
             self.write('EPOCH #%d\n'%(self.epoch))
 
@@ -49,7 +51,7 @@ class Trainer:
                 }, prefix='VAE_total', step=(self.epoch))
 
             if recon_loss < self.recon_thresh:
-                self.seq_len += 1
+                self.seq_len += 4
 
             with self.logger.experiment.validate():
                 recon_loss, entropy_loss, prior_loss = self.val_vae()
@@ -61,7 +63,7 @@ class Trainer:
 
             self.save(temp=self.temp_weights_file)
 
-            if self.scheduler:
+            if self.scheduler and self.scheduler.get_lr()[0] > 1e-5:
                 self.scheduler.step()
 
             # Increment epoch
@@ -73,11 +75,9 @@ class Trainer:
                 last_update   = self.epoch
             '''
 
-            '''
-            if self.seq_len > 32:
+            if self.seq_len > 48 and self.epoch > 100:
                 self.prior_factor = self.prior_factor * 1.1
                 self.prior_factor = min(1.0, self.prior_factor)
-            '''
 
     def save(self, **kwargs):
         data = {
@@ -113,7 +113,9 @@ class Trainer:
 
             losses = self.model.module.calc_loss(G, atom_y, bond_y, self.seq_len)
             recon_loss, entropy_loss, prior_loss = losses
-            loss = recon_loss
+
+            loss = 0
+            loss = loss + recon_loss
             loss = loss + self.prior_factor*prior_loss
             loss = loss + self.prior_factor*entropy_loss
 
@@ -147,6 +149,8 @@ class Trainer:
                     (i+1, log_seq_len,
                      recon_loss, entropy_loss, prior_loss)
                 )
+
+            del G, atom_y, bond_y, data, loss
 
         total_recon_loss   /= (i + 1)
         total_prior_loss   /= (i + 1)

@@ -12,8 +12,10 @@ class CNF(nn.Module):
         self.train_T = train_T
         self.T = float(T)
         if train_T:
-            self.register_parameter("sqrt_end_time",
-                                    nn.Parameter(torch.sqrt(torch.tensor(float(T)))))
+            self.register_parameter(
+                "sqrt_end_time",
+                nn.Parameter(torch.sqrt(torch.tensor(float(T))))
+            )
 
         self.odefunc = odefunc
         self.odeint  = odeint_adjoint if use_adjoint else odeint_normal
@@ -26,11 +28,13 @@ class CNF(nn.Module):
 
         if integration_times is None:
             if self.train_T:
-                integration_times = torch.stack(
-                    [torch.tensor(0.0).to(x), self.sqrt_end_time * self.sqrt_end_time]
-                )
+                integration_times = torch.stack([
+                    torch.tensor(0.0).to(x),
+                    self.sqrt_end_time * self.sqrt_end_time
+                ])
             else:
-                integration_times = torch.tensor([0., self.T], requires_grad=False)
+                integration_times = torch.tensor([0., self.T],
+                                                 requires_grad=False)
 
         if reverse:
             integration_times = _flip(integration_times, 0)

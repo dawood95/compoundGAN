@@ -53,6 +53,7 @@ class CVAEF(nn.Module):
 
         mu, logvar = self.encoder(G)
         z = self.reparameterize(mu, logvar)
+
         reconstruction_loss = self.decoder.calc_loss(z, atom_y, bond_y, seq_len)
 
         # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
@@ -64,5 +65,7 @@ class CVAEF(nn.Module):
         log_pw = self.stdnormal_logprob(w).sum(1, keepdim=True)
         log_pz = log_pw - delta_log_pw
         prior_loss = -log_pz.mean()
+
+        # return torch.Tensor([0.,]), entropy_loss, prior_loss
 
         return reconstruction_loss, entropy_loss, prior_loss

@@ -170,6 +170,7 @@ class Decoder(nn.Module):
 
         G = dgl.batch(G)
         G.to(z.device)
+
         return G
 
     def calc_node_loss(self, node_pred, node_target):

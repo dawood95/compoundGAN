@@ -24,6 +24,13 @@ class DecoderCell(nn.Module):
         self.state = None
 
     def reset_state(self, batch_size):
+        if self.state is not None:
+            self.state[0].detach_()
+            self.state[1].detach_()
+            self.state[0][:] = 0
+            self.state[1][:] = 0
+            return
+
         device = next(self.lstm.parameters()).device
         state  = (
             torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(device),
@@ -51,8 +58,9 @@ class DecoderCell(nn.Module):
         return [s[0] for s in self.state]
 
     def detach(self):
-        s[0].detach_()
-        s[1].detach_()
+        if self.state is None: return
+        self.state[0].detach_()
+        self.state[1].detach_()
         return
         for s in self.state:
             s[0].detach_()
