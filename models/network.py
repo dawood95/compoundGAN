@@ -8,6 +8,9 @@ from .decoder import Decoder
 
 from .cnf.ode import ODEnet, ODEfunc
 from .cnf.cnf import CNF
+from .cnf.flow import SequentialFlow
+from .cnf.normalization import MovingBatchNorm1d
+
 
 class CVAEF(nn.Module):
     '''
@@ -27,14 +30,14 @@ class CVAEF(nn.Module):
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)
         self.cnf = CNF(odefunc, cnf_T, cnf_train_T,
-                  solver, atol, rtol, use_adjoint)
+                       solver, atol, rtol, use_adjoint)
 
     def forward(self, x):
         raise NotImplementedError
 
     @staticmethod
     def gaussian_entropy(logvar):
-        const = 0.5 * float(logvar.size(-1)) * (1. + log(pi * 2))
+        const = 0.5 * float(logvar.size(-1)) * (1. + np.log(np.pi * 2))
         ent = 0.5 * logvar.sum(dim=-1, keepdim=False) + const
         return ent
 
@@ -61,8 +64,10 @@ class CVAEF(nn.Module):
         entropy = self.gaussian_entropy(logvar).mean()
         entropy_loss = -entropy
 
+        # return reconstruction_loss, entropy_loss, torch.Tensor([0.,])
+
         w, delta_log_pw = self.cnf(z, None)
-        log_pw = self.stdnormal_logprob(w).sum(1, keepdim=True)
+        log_pw = self.stdnormal_logprob(w).sum(-1, keepdim=True)
         log_pz = log_pw - delta_log_pw
         prior_loss = -log_pz.mean()
 

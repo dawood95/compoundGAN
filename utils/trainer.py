@@ -22,9 +22,10 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 12
+        self.seq_len      = np.inf
         self.log_step     = 25
         self.prior_factor = 1e-2
+        self.entropy_factor = 1e-2
         self.recon_thresh = 0.30
 
         self.vae_train_step  = 0
@@ -37,8 +38,6 @@ class Trainer:
 
     def run(self, num_epoch):
         for i in range(num_epoch):
-            torch.distributed.barrier()
-
             self.write('EPOCH #%d\n'%(self.epoch))
 
             with self.logger.experiment.train():
@@ -50,7 +49,7 @@ class Trainer:
                     'prior'   : prior_loss
                 }, prefix='VAE_total', step=(self.epoch))
 
-            if recon_loss < self.recon_thresh:
+            if recon_loss <= self.recon_thresh:
                 self.seq_len += 4
 
             with self.logger.experiment.validate():
@@ -75,7 +74,7 @@ class Trainer:
                 last_update   = self.epoch
             '''
 
-            if self.seq_len > 48 and self.epoch > 100:
+            if (recon_loss < self.recon_thresh) and (self.seq_len > 50):
                 self.prior_factor = self.prior_factor * 1.1
                 self.prior_factor = min(1.0, self.prior_factor)
 
@@ -83,9 +82,10 @@ class Trainer:
         data = {
             'epoch'      : self.epoch,
             'seq_len'    : self.seq_len,
-            'parameters' : self.model.state_dict(),
+            'parameters' : self.model.module.state_dict(),
         }
         self.logger.save('model_%d.weights'%self.epoch, data, **kwargs)
+        torch.distributed.barrier()
 
     def train_vae(self):
 
@@ -117,13 +117,18 @@ class Trainer:
             loss = 0
             loss = loss + recon_loss
             loss = loss + self.prior_factor*prior_loss
-            loss = loss + self.prior_factor*entropy_loss
+            loss = loss + self.entropy_factor*entropy_loss
 
             loss.backward()
 
             # clip gradients
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
             self.optim.step()
+
+            '''
+            for p in self.model.parameters():
+                p.data[p.data.abs() < 1e-16] = 0
+            '''
 
             self.vae_train_step += 1
 
@@ -145,10 +150,13 @@ class Trainer:
                     'VAE Train [%4d : %4d] | '
                     'Reconstruction Loss=[%6.5f] | '
                     'Entropy Loss=[%6.5f] | '
-                    'Prior Loss=[%6.5f]'%
+                    'Prior Loss=[%6.5f] | '
+                    'Num Evals=[%d]'%
                     (i+1, log_seq_len,
-                     recon_loss, entropy_loss, prior_loss)
+                     recon_loss, entropy_loss, prior_loss,
+                     self.model.module.cnf.num_evals())
                 )
+                # self.write('%f'%self.model.module.cnf.num_evals())
 
             del G, atom_y, bond_y, data, loss
 

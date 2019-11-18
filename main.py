@@ -33,15 +33,15 @@ parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
 
 parser.add_argument('--latent-dim', type=int, default=128)
 
-parser.add_argument('--cnf-hidden-dims', type=list, default=[128, 192, 256])
+parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256])
 parser.add_argument('--cnf-context-dim', type=int, default=0)
 parser.add_argument('--cnf-T', type=float, default=1.0)
-parser.add_argument('--cnf-train-T', type=eval, default=True)
+parser.add_argument('--cnf-train-T', type=eval, default=False)
 
 parser.add_argument('--ode-solver', type=str, default='dopri5')
 parser.add_argument('--ode-atol', type=float, default=1e-5)
 parser.add_argument('--ode-rtol', type=float, default=1e-5)
-parser.add_argument('--ode-use-adjoint', action='store_true', default=True)
+parser.add_argument('--ode-use-adjoint', action='store_true', default=False)
 
 parser.add_argument('--decoder-num-layers', type=int, default=4)
 
@@ -55,6 +55,8 @@ parser.add_argument('--global-rank', type=int)
 
 # for torch distributed launch
 parser.add_argument('--local_rank', type=int)
+
+torch.set_flush_denormal(True)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -95,13 +97,11 @@ if __name__ == "__main__":
                               pin_memory=args.cuda,
                               drop_last=True)
 
-    val_sampler = distributed.DistributedSampler(val_dataset)
     val_loader = DataLoader(val_dataset,
                             batch_size=args.batch_size,
                             shuffle=False,
                             num_workers=args.num_workers,
                             collate_fn=ZINC_collate,
-                            sampler=val_sampler,
                             pin_memory=args.cuda,
                             drop_last=True)
 
@@ -118,12 +118,12 @@ if __name__ == "__main__":
 
     # CUDA
     device = torch.device('cpu')
-    if args.cuda: device = torch.device('cuda', args.local_rank)
+    if args.cuda:
+        device = torch.device('cuda', args.local_rank)
+        torch.cuda.set_device(device)
 
     model = model.to(device)
-    model = DDP(model,
-                device_ids=[args.local_rank],
-                output_device=args.local_rank)
+    model = DDP(model, device_ids=[args.local_rank])
 
     # Optimizer
     optimizer = Adam(

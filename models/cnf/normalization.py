@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.nn import Parameter
-from utils import reduce_tensor
 
 __all__ = ['MovingBatchNorm1d']
 
@@ -53,6 +52,7 @@ class MovingBatchNormNd(nn.Module):
             batch_mean = torch.mean(x_t, dim=1)
 
             if self.sync:
+                raise NotImplementedError
                 batch_ex2 = torch.mean(x_t**2, dim=1)
                 batch_mean = reduce_tensor(batch_mean)
                 batch_ex2 = reduce_tensor(batch_ex2)

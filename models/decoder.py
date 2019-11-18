@@ -246,6 +246,8 @@ class Decoder(nn.Module):
                 node_embeddings.append(node_emb)
                 continue
 
+            continue
+
             # Generate edges
             self.edge_cell.set_hidden(self.node_cell.get_hidden())
 

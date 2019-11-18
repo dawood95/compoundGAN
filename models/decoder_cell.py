@@ -16,7 +16,7 @@ class DecoderCell(nn.Module):
         )
         '''
 
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, bias)
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, bias, dropout=0.20)
 
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
@@ -24,7 +24,7 @@ class DecoderCell(nn.Module):
         self.state = None
 
     def reset_state(self, batch_size):
-        if self.state is not None:
+        if self.state is not None and self.state[0].shape[1] == batch_size:
             self.state[0].detach_()
             self.state[1].detach_()
             self.state[0][:] = 0
