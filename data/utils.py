@@ -117,15 +117,15 @@ def bonds2vec(bonds, repeat_bonds=True):
 
 #@profile
 def mol2graph(mol):
-    # Find canonical start atom
+    # Find canonical start atom before kek
     bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
-    # bfs_root = randint(0, len(atoms) - 1) # NOTE: INVESTIGATE
 
     # Kekulize to remove aromatic flags
     Chem.Kekulize(mol, clearAromaticFlags=True)
 
-    atoms = list(mol.GetAtoms())
-    bonds = list(mol.GetBonds())
+    # Get atoms and bonds
+    atoms      = list(mol.GetAtoms())
+    bonds      = list(mol.GetBonds())
     bond_start = [b.GetBeginAtomIdx() for b in bonds]
     bond_end   = [b.GetEndAtomIdx() for b in bonds]
 
@@ -137,11 +137,11 @@ def mol2graph(mol):
 
     #atom feats
     atom_feats, atom_targets = atoms2vec(atoms)
-    G.ndata['feats'] = atom_feats
+    G.ndata['feats'] = atom_feats.clone().detach()
 
     #bond_feats
     bond_feats, bond_targets = bonds2vec(bonds)
-    G.edata['feats'] = bond_feats
+    G.edata['feats'] = bond_feats.clone().detach()
 
     # Get BFS node sequence to use as target sequence
     atom_seq = torch.cat(dgl.bfs_nodes_generator(G, bfs_root))
@@ -149,6 +149,8 @@ def mol2graph(mol):
 
     # Rearrange order according to BFS
     # Generator will try to generate in this sequence
+    start_atom   = torch.zeros_like(atom_feats[0]).unsqueeze(0)
+    atom_feats   = torch.cat([start_atom, atom_feats[atom_seq]], 0)
     atom_targets = atom_targets[atom_seq + [len(atom_targets) - 1,]]
 
     num_nodes = len(atom_targets)
@@ -168,4 +170,4 @@ def mol2graph(mol):
     # Self loops
     G.add_edges(G.nodes(), G.nodes())
 
-    return G, atom_targets, allpair_bonds
+    return G, atom_feats, atom_targets, allpair_bonds

@@ -33,7 +33,7 @@ parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
 
 parser.add_argument('--latent-dim', type=int, default=128)
 
-parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256])
+parser.add_argument('--cnf-hidden-dims', type=list, default=[128, 128, 128])
 parser.add_argument('--cnf-context-dim', type=int, default=0)
 parser.add_argument('--cnf-T', type=float, default=1.0)
 parser.add_argument('--cnf-train-T', type=eval, default=False)

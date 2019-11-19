@@ -22,7 +22,7 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = np.inf
+        self.seq_len      = 4
         self.log_step     = 25
         self.prior_factor = 1e-2
         self.entropy_factor = 1e-2
@@ -105,13 +105,14 @@ class Trainer:
         for i, data in enumerate(data_loader):
             self.optim.zero_grad()
 
-            G, atom_y, bond_y = data
+            G, atom_x, atom_y, bond_y = data
 
             G.to(self.device)
+            atom_x = atom_x.to(self.device)
             atom_y = atom_y.to(self.device)
             bond_y = bond_y.to(self.device)
 
-            losses = self.model.module.calc_loss(G, atom_y, bond_y, self.seq_len)
+            losses = self.model.module.calc_loss(G, atom_x, atom_y, bond_y, self.seq_len)
             recon_loss, entropy_loss, prior_loss = losses
 
             loss = 0
@@ -192,13 +193,14 @@ class Trainer:
 
         for i, data in enumerate(data_loader):
 
-            G, atom_y, bond_y = data
+            G, atom_x, atom_y, bond_y = data
 
             G.to(self.device)
+            atom_x = atom_x.to(self.device)
             atom_y = atom_y.to(self.device)
             bond_y = bond_y.to(self.device)
 
-            losses = self.model.module.calc_loss(G, atom_y, bond_y, self.seq_len)
+            losses = self.model.module.calc_loss(G, atom_x, atom_y, bond_y, self.seq_len)
             recon_loss, entropy_loss, prior_loss = losses
             loss = recon_loss + entropy_loss + prior_loss
 

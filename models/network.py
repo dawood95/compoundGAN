@@ -52,12 +52,12 @@ class CVAEF(nn.Module):
         eps = torch.randn_like(std)
         return mu + std*eps
 
-    def calc_loss(self, G, atom_y, bond_y, seq_len):
+    def calc_loss(self, G, atom_x, atom_y, bond_y, seq_len):
 
         mu, logvar = self.encoder(G)
         z = self.reparameterize(mu, logvar)
 
-        reconstruction_loss = self.decoder.calc_loss(z, atom_y, bond_y, seq_len)
+        reconstruction_loss = self.decoder.calc_loss(z, atom_x, atom_y, bond_y, seq_len)
 
         # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
 

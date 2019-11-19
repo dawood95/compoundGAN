@@ -23,8 +23,8 @@ class ZINC250K(data.Dataset):
     def __getitem__(self, idx):
         smiles = self.data[idx]
         mol = Chem.MolFromSmiles(smiles)
-        G, atom_feats, bond_feats = mol2graph(mol)
-        return G, atom_feats, bond_feats
+        G, atom_feats, atom_targets, bond_targets = mol2graph(mol)
+        return G, atom_feats, atom_targets, bond_targets
 
     def __len__(self):
         return len(self.data)
@@ -32,22 +32,27 @@ class ZINC250K(data.Dataset):
 #@profile
 def ZINC_collate(x):
     batch_size = len(x)
-    graphs, atom_feats, bond_feats = map(list, zip(*x))
+
+    graphs, atom_x, atom_y, bond_y = map(list, zip(*x))
 
     graphs = dgl.batch(graphs)
 
     max_seq_len = 0
-    for bn in bond_feats:
-        max_seq_len = max([len(bn), max_seq_len])
+    for ay in atom_y:
+        max_seq_len = max([len(ay), max_seq_len])
 
-    atom_targets = torch.ones((max_seq_len, batch_size, atom_feats[-1].shape[-1]))
-    atom_targets = -1 * atom_targets
-    for b, af in enumerate(atom_feats):
-        atom_targets[:len(af), b] = af
+    batch_atom_x = torch.zeros((max_seq_len, batch_size, atom_x[-1].shape[-1]))
+    for b, ax in enumerate(atom_x):
+        batch_atom_x[:len(ax), b] = ax
 
-    bond_targets = torch.ones((max_seq_len, 12, batch_size, bond_feats[-1].shape[-1]))
-    bond_targets = -1 * bond_targets
-    for b, bf in enumerate(bond_feats):
-        bond_targets[:bf.shape[0], :, b] = bf
+    batch_atom_y = torch.ones((max_seq_len, batch_size, atom_y[-1].shape[-1]))
+    batch_atom_y = -1 * batch_atom_y
+    for b, ay in enumerate(atom_y):
+        batch_atom_y[:len(ay), b] = ay
 
-    return graphs, atom_targets.long(), bond_targets.long()
+    batch_bond_y = torch.ones((max_seq_len, 12, batch_size, bond_y[-1].shape[-1]))
+    batch_bond_y = -1 * batch_bond_y
+    for b, by in enumerate(bond_y):
+        batch_bond_y[:by.shape[0], :, b] = by
+
+    return graphs, batch_atom_x.float(), batch_atom_y.long(), batch_bond_y.long()
