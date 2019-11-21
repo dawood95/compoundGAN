@@ -15,6 +15,7 @@ from models.network import CVAEF
 
 from data.zinc import ZINC250K, ZINC_collate
 from utils.trainer import Trainer
+from utils.radam import RAdam
 from utils.logger import Logger
 
 parser = argparse.ArgumentParser()
@@ -31,12 +32,12 @@ parser.add_argument('--weight-decay', type=float, default=0)
 parser.add_argument('--node-dims', type=list, default=[43, 7, 3, 3])
 parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
 
-parser.add_argument('--latent-dim', type=int, default=128)
+parser.add_argument('--latent-dim', type=int, default=256)
 
-parser.add_argument('--cnf-hidden-dims', type=list, default=[128, 128, 128])
+parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256])
 parser.add_argument('--cnf-context-dim', type=int, default=0)
 parser.add_argument('--cnf-T', type=float, default=1.0)
-parser.add_argument('--cnf-train-T', type=eval, default=False)
+parser.add_argument('--cnf-train-T', type=eval, default=True)
 
 parser.add_argument('--ode-solver', type=str, default='dopri5')
 parser.add_argument('--ode-atol', type=float, default=1e-5)

@@ -4,7 +4,7 @@ from torch import nn
 from math import pi, log
 
 from .encoder import Encoder
-from .decoder import Decoder
+from .transformer_decoder import Decoder
 
 from .cnf.ode import ODEnet, ODEfunc
 from .cnf.cnf import CNF
@@ -25,15 +25,12 @@ class CVAEF(nn.Module):
 
         self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
         self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-                               num_decoder_layers)
+                               num_decoder_layers, num_head=8)
 
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)
         self.cnf = CNF(odefunc, cnf_T, cnf_train_T,
                        solver, atol, rtol, use_adjoint)
-
-    def forward(self, x):
-        raise NotImplementedError
 
     @staticmethod
     def gaussian_entropy(logvar):
@@ -52,12 +49,16 @@ class CVAEF(nn.Module):
         eps = torch.randn_like(std)
         return mu + std*eps
 
-    def calc_loss(self, G, atom_x, atom_y, bond_y, seq_len):
+    def forward(self, data):
+
+        G, atom_i, atom_x, atom_y, bond_y = data
 
         mu, logvar = self.encoder(G)
         z = self.reparameterize(mu, logvar)
 
-        reconstruction_loss = self.decoder.calc_loss(z, atom_x, atom_y, bond_y, seq_len)
+        reconstruction_loss = self.decoder(z,
+                                           atom_i, atom_x,
+                                           atom_y, bond_y)
 
         # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
 

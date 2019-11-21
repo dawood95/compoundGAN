@@ -116,9 +116,11 @@ def bonds2vec(bonds, repeat_bonds=True):
     return feats.float(), target.long()
 
 #@profile
-def mol2graph(mol):
+def mol2graph(mol, num_nodes=np.inf):
     # Find canonical start atom before kek
-    bfs_root = list(Chem.CanonicalRankAtoms(mol)).index(0)
+    bfs_root  = list(Chem.CanonicalRankAtoms(mol))
+    num_nodes = min(num_nodes, len(bfs_root) + 1)
+    bfs_root  = bfs_root.index(0)
 
     # Kekulize to remove aromatic flags
     Chem.Kekulize(mol, clearAromaticFlags=True)
@@ -153,21 +155,46 @@ def mol2graph(mol):
     atom_feats   = torch.cat([start_atom, atom_feats[atom_seq]], 0)
     atom_targets = atom_targets[atom_seq + [len(atom_targets) - 1,]]
 
-    num_nodes = len(atom_targets)
-    allpair_bonds = torch.zeros((num_nodes, 12, bond_targets.shape[-1]))
-    for i in range(len(atom_seq)):
+    # Find a subset of atoms S such that len(S) = num_nodes
+    start_idx = 0# randint(0, len(atom_feats) - num_nodes)
+    end_idx   = start_idx + num_nodes
+    atom_idx  = torch.arange(start_idx, end_idx)
+    atom_sub  = atom_seq[start_idx:end_idx]
+
+
+    num_nodes = len(atom_idx)
+    if num_nodes > 12:
+        num_edges = ((12 // 2) * 11) + ((num_nodes - 12) * 12)
+    else:
+        num_edges = (num_nodes * (num_nodes - 1)) // 2
+
+    edge_num = 0
+    all_bond_targets = torch.zeros((num_edges, bond_targets.shape[-1]))
+    for i in range(len(atom_idx)):
         for j in range(i):
-            s = atom_seq[j]
-            e = atom_seq[i]
-            if ((i > 12) and (j < (i - 12))):
-                # assert G.has_edge_between(s, e) == False, 'assumption wrong'
+            idx_i = atom_idx[i]
+            idx_j = atom_idx[j]
+
+            if ((idx_i > 12) and (idx_j < (idx_i - 12))):
                 continue
+
+            if idx_i == len(atom_seq):
+                edge_num += 1
+                continue
+
+            s = atom_seq[idx_j]
+            e = atom_seq[idx_i]
+
             if G.has_edge_between(s, e):
                 bond_id = G.edge_id(s, e)
-                _j = j - (i - 12) if (i - 12) > 0 else j
-                allpair_bonds[i, _j, :] = bond_targets[bond_id].clone()
+                all_bond_targets[edge_num] = bond_targets[bond_id]
+
+            edge_num += 1
+
+    atom_targets = atom_targets[start_idx:end_idx]
+    atom_feats   = atom_feats[start_idx:end_idx]
 
     # Self loops
     G.add_edges(G.nodes(), G.nodes())
 
-    return G, atom_feats, atom_targets, allpair_bonds
+    return G, atom_idx.unsqueeze(-1), atom_feats, atom_targets, all_bond_targets

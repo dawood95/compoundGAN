@@ -22,11 +22,12 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 4
+        self.seq_len      = 2
         self.log_step     = 25
-        self.prior_factor = 1e-2
+
+        self.prior_factor   = 1e-2
         self.entropy_factor = 1e-2
-        self.recon_thresh = 0.30
+        self.recon_thresh   = 0.20
 
         self.vae_train_step  = 0
         self.vae_val_step    = 0
@@ -38,6 +39,10 @@ class Trainer:
 
     def run(self, num_epoch):
         for i in range(num_epoch):
+
+            self.train_loader.dataset.seq_length = self.seq_len
+            self.val_loader.dataset.seq_length   = self.seq_len
+
             self.write('EPOCH #%d\n'%(self.epoch))
 
             with self.logger.experiment.train():
@@ -49,8 +54,7 @@ class Trainer:
                     'prior'   : prior_loss
                 }, prefix='VAE_total', step=(self.epoch))
 
-            if recon_loss <= self.recon_thresh:
-                self.seq_len += 4
+            train_recon_loss = recon_loss
 
             with self.logger.experiment.validate():
                 recon_loss, entropy_loss, prior_loss = self.val_vae()
@@ -68,11 +72,12 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
-            '''
-            if self.epoch - last_update >= update_thresh:
-                self.seq_len += 4
-                last_update   = self.epoch
-            '''
+            if train_recon_loss <= self.recon_thresh:
+                self.seq_len = self.seq_len * 2
+                self.recon_thresh += 0.05
+
+                self.seq_len = min(64, self.seq_len)
+                self.recon_thresh = min(self.recon_thresh, 0.40)
 
             if (recon_loss < self.recon_thresh) and (self.seq_len > 50):
                 self.prior_factor = self.prior_factor * 1.1
@@ -85,7 +90,6 @@ class Trainer:
             'parameters' : self.model.module.state_dict(),
         }
         self.logger.save('model_%d.weights'%self.epoch, data, **kwargs)
-        torch.distributed.barrier()
 
     def train_vae(self):
 
@@ -105,14 +109,11 @@ class Trainer:
         for i, data in enumerate(data_loader):
             self.optim.zero_grad()
 
-            G, atom_x, atom_y, bond_y = data
+            data[0].to(self.device)
+            for j in range(1, len(data)):
+                data[j] = data[j].to(self.device)
 
-            G.to(self.device)
-            atom_x = atom_x.to(self.device)
-            atom_y = atom_y.to(self.device)
-            bond_y = bond_y.to(self.device)
-
-            losses = self.model.module.calc_loss(G, atom_x, atom_y, bond_y, self.seq_len)
+            losses = self.model(data)
             recon_loss, entropy_loss, prior_loss = losses
 
             loss = 0
@@ -123,7 +124,8 @@ class Trainer:
             loss.backward()
 
             # clip gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+
             self.optim.step()
 
             '''
@@ -159,7 +161,7 @@ class Trainer:
                 )
                 # self.write('%f'%self.model.module.cnf.num_evals())
 
-            del G, atom_y, bond_y, data, loss
+            del data, loss
 
         total_recon_loss   /= (i + 1)
         total_prior_loss   /= (i + 1)
@@ -193,14 +195,11 @@ class Trainer:
 
         for i, data in enumerate(data_loader):
 
-            G, atom_x, atom_y, bond_y = data
+            data[0].to(self.device)
+            for j in range(1, len(data)):
+                data[j] = data[j].to(self.device)
 
-            G.to(self.device)
-            atom_x = atom_x.to(self.device)
-            atom_y = atom_y.to(self.device)
-            bond_y = bond_y.to(self.device)
-
-            losses = self.model.module.calc_loss(G, atom_x, atom_y, bond_y, self.seq_len)
+            losses = self.model(data)
             recon_loss, entropy_loss, prior_loss = losses
             loss = recon_loss + entropy_loss + prior_loss
 
