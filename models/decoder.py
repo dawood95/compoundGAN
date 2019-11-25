@@ -13,7 +13,7 @@ class Decoder(nn.Module):
     z --> Graph
     '''
     def __init__(self, latent_size, node_feats, edge_feats,
-                 num_layers=1, bias=True):
+                 num_layers=1, bias=True, num_head=0):
 
         super().__init__()
 

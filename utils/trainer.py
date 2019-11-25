@@ -22,7 +22,7 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 2
+        self.seq_len      = 4
         self.log_step     = 25
 
         self.prior_factor   = 1e-2
@@ -56,13 +56,14 @@ class Trainer:
 
             train_recon_loss = recon_loss
 
-            with self.logger.experiment.validate():
-                recon_loss, entropy_loss, prior_loss = self.val_vae()
-                self.logger.experiment.log_metrics({
-                    'recon'   : recon_loss,
-                    'entropy' : entropy_loss,
-                    'prior'   : prior_loss
-                }, prefix='VAE_total', step=(self.epoch))
+            if False and (i+1)%5 == 0:
+                with self.logger.experiment.validate():
+                    recon_loss, entropy_loss, prior_loss = self.val_vae()
+                    self.logger.experiment.log_metrics({
+                        'recon'   : recon_loss,
+                        'entropy' : entropy_loss,
+                        'prior'   : prior_loss
+                    }, prefix='VAE_total', step=(self.epoch))
 
             self.save(temp=self.temp_weights_file)
 
@@ -73,7 +74,7 @@ class Trainer:
             self.epoch += 1
 
             if train_recon_loss <= self.recon_thresh:
-                self.seq_len = self.seq_len * 2
+                self.seq_len = self.seq_len + 4
                 self.recon_thresh += 0.05
 
                 self.seq_len = min(64, self.seq_len)

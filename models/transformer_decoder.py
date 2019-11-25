@@ -8,7 +8,7 @@ from torch.nn import functional as F
 class Decoder(nn.Module):
 
     def __init__(self, latent_dim, node_feats, edge_feats, num_layers=1, bias=True,
-                 num_head=1):
+                 num_head=1, ff_dim=1024):
 
         super().__init__()
 
@@ -21,25 +21,30 @@ class Decoder(nn.Module):
             nn.SELU(True)
         )
 
+        # self.node_project = nn.Linear(node_input_dim, hidden_dim, bias=bias)
+
         self.node_decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(hidden_dim, num_head, num_head * hidden_dim // 2),
+            nn.TransformerDecoderLayer(hidden_dim, num_head, ff_dim),
             num_layers,
             nn.LayerNorm(hidden_dim)
         )
 
+        '''
         self.edge_decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(hidden_dim, num_head, num_head * hidden_dim // 2),
-            num_layers // 2,
+            nn.TransformerDecoderLayer(hidden_dim, num_head, hidden_dim),
+            num_layers,
             nn.LayerNorm(hidden_dim)
         )
+        '''
 
         self.node_classifiers = nn.ModuleList([
             nn.Linear(hidden_dim, feat_dim, bias)
             for feat_dim in node_feats
         ])
 
+
         self.edge_classifiers = nn.ModuleList([
-            nn.Linear(hidden_dim, feat_dim, bias)
+            nn.Linear(2*hidden_dim, feat_dim, bias)
             for feat_dim in edge_feats
         ])
 
@@ -49,29 +54,49 @@ class Decoder(nn.Module):
         self.one_hot_dims   = node_feats
 
         self.sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
-        self.sin_freq = 1 / (10_000 ** self.sin_freq)
+        self.sin_freq = 1 / (1_000 ** self.sin_freq)
 
         self.cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
-        self.cos_freq = 1 / (10_000 ** self.cos_freq)
+        self.cos_freq = 1 / (1_000 ** self.cos_freq)
 
     def build_inputs(self, batch_size, seq_length, pos=None):
 
         embedding = torch.zeros(seq_length, batch_size, self.hidden_dim)
 
-        x = torch.arange(0, seq_length).unsqueeze(-1)
-        x = x.repeat_interleave(batch_size, dim=1)
-        if pos is not None: x[:] = pos
+        x = torch.arange(0, seq_length)
+
+        if pos is None:
+            sin_emb = torch.sin(torch.einsum('i,d->id', x, self.sin_freq))
+            cos_emb = torch.cos(torch.einsum('i,d->id', x, self.cos_freq))
+
+            sin_emb = sin_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
+            cos_emb = cos_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
+
+            embedding[:, :, 0:self.hidden_dim:2] = sin_emb.clone().detach()
+            embedding[:, :, 1:self.hidden_dim:2] = cos_emb.clone().detach()
+
+            return embedding
+
+        x = x.unsqueeze(-1).repeat_interleave(batch_size, dim=1)
+        x[:] = pos
 
         sin_emb = torch.sin(torch.einsum('ij,d->ijd', x, self.sin_freq))
         cos_emb = torch.cos(torch.einsum('ij,d->ijd', x, self.cos_freq))
-
-        # sin_emb = sin_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
-        # cos_emb = cos_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
 
         embedding[:, :, 0:self.hidden_dim:2] = sin_emb.clone().detach()
         embedding[:, :, 1:self.hidden_dim:2] = cos_emb.clone().detach()
 
         return embedding
+
+    def predict_edge(self, edges):
+        src_feats = edges.src['emb']
+        dst_feats = edges.dst['emb']
+        feats = torch.cat([src_feats, dst_feats], -1)
+        feats = [c(feats) for c in self.edge_classifiers]
+        preds = {}
+        for i in range(len(feats)):
+            preds[str(i)] = feats[i]
+        return preds
 
     def generate_square_mask(self, sz):
         mask = torch.triu(torch.ones(sz, sz), 1)
@@ -96,18 +121,18 @@ class Decoder(nn.Module):
         atom_x = self.node_project(atom_x)
         atom_x = atom_x.view(seq_length, batch_size, -1)
 
-        decoder_inputs = self.build_inputs(batch_size, seq_length, atom_i.squeeze(-1))
+        decoder_inputs = self.build_inputs(batch_size, seq_length)
         decoder_inputs = decoder_inputs.to(z)
         decoder_inputs = decoder_inputs + atom_x
 
         decoder_mask = self.generate_square_mask(seq_length).to(z)
-        # padding_mask = (atom_y[:seq_length, :, 0] == -1).T
+        padding_mask = (atom_y[:seq_length, :, 0] == -1).T
 
         node_emb = self.node_decoder(
             tgt = decoder_inputs,
             memory = z.unsqueeze(0),
             tgt_mask = decoder_mask,
-            # tgt_key_padding_mask = padding_mask
+            tgt_key_padding_mask = padding_mask
         )
 
         node_preds  = [c(node_emb) for c in self.node_classifiers]
@@ -116,6 +141,41 @@ class Decoder(nn.Module):
 
         node_loss = self.calc_node_loss(node_preds, node_target)
 
+
+        # build graph to predict edges
+        G = [dgl.DGLGraph() for _ in range(batch_size)]
+
+        for b in range(batch_size):
+            # num_node = atom_y[:, b, 0] != -1
+            # num_node = num_node.sum()
+            # num_node = min(num_node, seq_length)
+            num_node = seq_length
+
+            G[b].add_nodes(num_node)
+            G[b].ndata['emb'] = node_emb[:num_node, b]
+
+            edge_start = []
+            edge_end   = []
+            for i in range(num_node):
+                for j in range(i):
+                    if ((i > 12) and (j < (i - 12))): continue
+                    edge_start.append(i)
+                    edge_end.append(j)
+                j = 0 if i == 0 else (j + 1)
+            G[b].add_edges(edge_start, edge_end)
+
+        G = dgl.batch(G)
+        G.to(z.device)
+        G.apply_edges(self.predict_edge)
+
+        edge_preds = []
+        for i in range(len(self.edge_classifiers)):
+            edge_preds.append(G.edata[str(i)])
+
+        edge_target = bond_y.view(-1, bond_y.shape[-1])
+        edge_loss = self.calc_node_loss(edge_preds, edge_target)
+
+        '''
         edge_memory = torch.cat([z.unsqueeze(0), node_emb], 0)
 
         edge_decoder_emb = []
@@ -158,6 +218,7 @@ class Decoder(nn.Module):
         edge_target = bond_y.view(-1, bond_y.shape[-1])
 
         edge_loss = self.calc_node_loss(edge_preds, edge_target)
+        '''
 
         return node_loss + edge_loss
 

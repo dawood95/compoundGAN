@@ -84,7 +84,7 @@ if __name__ == "__main__":
 
     train_dataset = dataset
     val_dataset   = deepcopy(dataset)
-    split_len     = int(len(train_dataset)*0.8)
+    split_len     = int(len(train_dataset)*0.9)
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
 

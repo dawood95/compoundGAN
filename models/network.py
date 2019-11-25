@@ -25,7 +25,7 @@ class CVAEF(nn.Module):
 
         self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
         self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-                               num_decoder_layers, num_head=8)
+                               num_decoder_layers, num_head=8, ff_dim=1024)
 
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)

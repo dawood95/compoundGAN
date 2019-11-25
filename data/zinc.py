@@ -20,7 +20,7 @@ class ZINC250K(data.Dataset):
         data = pd.read_csv(data_file)
         data = list(data['smiles'])
         random.shuffle(data)
-        
+
         self.data = data
         self.seq_length = np.inf
 
