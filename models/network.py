@@ -8,7 +8,6 @@ from .transformer_decoder import Decoder
 
 from .cnf.ode import ODEnet, ODEfunc
 from .cnf.cnf import CNF
-from .cnf.flow import SequentialFlow
 from .cnf.normalization import MovingBatchNorm1d
 
 

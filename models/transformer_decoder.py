@@ -253,7 +253,7 @@ class Decoder(nn.Module):
             )
 
             node_emb = node_emb[-1]
-            pred_node_embs.append(node_emb.unsqueeze(0))
+            pred_node_embs.append(node_emb.unsqueeze(1))
 
             node_pred = [c(node_emb) for c in self.node_classifiers]
             node_pred = [F.softmax(pred, -1) for pred in node_pred]
@@ -277,6 +277,7 @@ class Decoder(nn.Module):
 
             decoder_inputs.append(next_input)
 
+            '''
             if i == 0:
                 continue
 
@@ -293,9 +294,10 @@ class Decoder(nn.Module):
             edge_preds = torch.cat(edge_preds, -1)
 
             pred_edge_feats.append(edge_preds)
+            '''
 
         pred_node_feats = torch.cat(pred_node_feats, 1)
-        pred_edge_feats = torch.cat(pred_edge_feats, 0)
+        node_embeddings = torch.cat(pred_node_embs, 1)
         num_nodes[num_nodes == -1] = pred_node_feats.shape[1]
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
@@ -305,12 +307,8 @@ class Decoder(nn.Module):
             num_node = int(num_nodes[b].item())
 
             G[b].add_nodes(num_node)
+            G[b].ndata['emb'] = node_embeddings[b, :num_node]
             G[b].ndata['feats'] = pred_node_feats[b, :num_node]
-
-            if num_node > 12:
-                num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
-            else:
-                num_edge = (num_node * (num_node - 1))//2
 
             edge_start = []
             edge_end   = []
@@ -319,11 +317,24 @@ class Decoder(nn.Module):
                     if ((i > 12) and (j < (i - 12))): continue
                     edge_start.append(i)
                     edge_end.append(j)
-
             G[b].add_edges(edge_start, edge_end)
-            G[b].edata['feats'] = pred_edge_feats[:num_edge, b]
 
         G = dgl.batch(G)
         G.to(z.device)
+
+        '''
+        feat = G.ndata['emb']
+        for l in self.edge_gcn:
+            feat = l(G, feat)
+        G.ndata['emb'] = feat
+        '''
+
+        G.apply_edges(self.predict_edge)
+
+        edge_preds = []
+        for i in range(len(self.edge_classifiers)):
+            edge_preds.append(G.edata[str(i)])
+
+        G.edata['feats'] = torch.cat(edge_preds, -1)
 
         return G
