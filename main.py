@@ -127,7 +127,7 @@ if __name__ == "__main__":
     model = DDP(model, device_ids=[args.local_rank])
 
     # Optimizer
-    optimizer = Adam(
+    optimizer = RAdam(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay

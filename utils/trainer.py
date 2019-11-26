@@ -22,7 +22,7 @@ class Trainer:
         self.is_master = is_master
 
         self.epoch        = 0
-        self.seq_len      = 4
+        self.seq_len      = np.inf
         self.log_step     = 25
 
         self.prior_factor   = 1e-2
