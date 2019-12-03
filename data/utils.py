@@ -161,7 +161,6 @@ def mol2graph(mol, num_nodes=np.inf):
     atom_idx  = torch.arange(start_idx, end_idx)
     atom_sub  = atom_seq[start_idx:end_idx]
 
-
     num_nodes = len(atom_idx)
     if num_nodes > 12:
         num_edges = ((12 // 2) * 11) + ((num_nodes - 12) * 12)

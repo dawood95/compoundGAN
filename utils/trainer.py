@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 
 from torch import nn
+from torch import distributed as dist
 from torch.nn import functional as F
 
 class Trainer:
@@ -25,8 +26,8 @@ class Trainer:
         self.seq_len      = np.inf
         self.log_step     = 25
 
-        self.prior_factor   = 1e-2
-        self.entropy_factor = 1e-2
+        self.prior_factor   = 1e-3
+        self.entropy_factor = 1e-3
         self.recon_thresh   = 0.20
 
         self.vae_train_step  = 0
@@ -56,7 +57,7 @@ class Trainer:
 
             train_recon_loss = recon_loss
 
-            if False and (i+1)%5 == 0:
+            if i%3 == 0:
                 with self.logger.experiment.validate():
                     recon_loss, entropy_loss, prior_loss = self.val_vae()
                     self.logger.experiment.log_metrics({
@@ -73,16 +74,19 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
+            '''
             if train_recon_loss <= self.recon_thresh:
                 self.seq_len = self.seq_len + 4
-                self.recon_thresh += 0.05
-
+                self.recon_thresh += 0.02
                 self.seq_len = min(64, self.seq_len)
                 self.recon_thresh = min(self.recon_thresh, 0.40)
+            '''
 
-            if (recon_loss < self.recon_thresh) and (self.seq_len > 50):
-                self.prior_factor = self.prior_factor * 1.1
-                self.prior_factor = min(1.0, self.prior_factor)
+            if (train_recon_loss < self.recon_thresh) and (self.seq_len > 50):
+                self.prior_factor = self.prior_factor + 0.001
+                self.prior_factor = min(1e-1, self.prior_factor)
+                self.write('New prior factor = %1.4f'%(self.prior_factor))
+
 
     def save(self, **kwargs):
         data = {
@@ -181,6 +185,8 @@ class Trainer:
     @torch.no_grad()
     def val_vae(self):
 
+        ws = torch.distributed.get_world_size()
+
         log_seq_len = -1 if self.seq_len == np.inf else self.seq_len
 
         self.model.eval()
@@ -202,6 +208,15 @@ class Trainer:
 
             losses = self.model(data)
             recon_loss, entropy_loss, prior_loss = losses
+
+            dist.reduce(recon_loss, 0)
+            dist.reduce(entropy_loss, 0)
+            dist.reduce(prior_loss, 0)
+
+            recon_loss /= ws
+            entropy_loss /= ws
+            prior_loss /= ws
+
             loss = recon_loss + entropy_loss + prior_loss
 
             self.vae_val_step += 1

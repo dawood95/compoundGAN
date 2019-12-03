@@ -13,7 +13,7 @@ class Decoder(nn.Module):
     z --> Graph
     '''
     def __init__(self, latent_size, node_feats, edge_feats,
-                 num_layers=1, bias=True, num_head=0):
+                 num_layers=1, bias=True):
 
         super().__init__()
 
@@ -47,7 +47,7 @@ class Decoder(nn.Module):
         self.one_hot_sizes = node_feats
 
 
-    def forward(self, z, max_nodes=50):
+    def generate(self, z, max_nodes=50):
 
         batch_size     = z.shape[0]
         max_seq_length = max_nodes
@@ -88,12 +88,14 @@ class Decoder(nn.Module):
             num_nodes[cond1 & cond2] = i + 1
 
             # Generate node embedding for target/pred (teacher forcing)
+            '''
             node_emb = []
             for j, emb_size in enumerate(self.one_hot_sizes):
                 target = node_pred[j].argmax(-1)
                 emb    = F.one_hot(target, emb_size)
                 node_emb.append(emb)
             node_emb = torch.cat(node_emb, -1).float().to(z)
+            '''
 
             node_pred = torch.cat(node_pred, -1)
             pred_node_feats.append(node_pred.unsqueeze(1))
@@ -103,8 +105,8 @@ class Decoder(nn.Module):
                 node_embeddings.append(node_emb)
                 continue
 
-            node_embeddings.append(node_emb)
-            continue
+            # node_embeddings.append(node_emb)
+            # continue
 
             # Generate edges
             self.edge_cell.set_hidden(self.node_cell.get_hidden())
@@ -139,7 +141,7 @@ class Decoder(nn.Module):
             if (num_nodes != -1).all(): break
 
         pred_node_feats = torch.cat(pred_node_feats, 1)
-        # pred_edge_feats = torch.cat(pred_edge_feats, 0)
+        pred_edge_feats = torch.cat(pred_edge_feats, 0)
         num_nodes[num_nodes == -1] = pred_node_feats.shape[1]
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
@@ -150,8 +152,6 @@ class Decoder(nn.Module):
 
             G[b].add_nodes(num_node)
             G[b].ndata['feats'] = pred_node_feats[b, :num_node]
-
-            continue
 
             if num_node > 12:
                 num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
@@ -190,7 +190,7 @@ class Decoder(nn.Module):
             total_edge_loss += loss
         return total_edge_loss
 
-    def calc_loss(self, z, atom_y, bond_y, max_nodes=np.inf):
+    def forward(self, z, atom_i, atom_x, atom_y, bond_y, max_nodes=np.inf):
 
         batch_size     = z.shape[0]
         seq_length     = atom_y.shape[0]
@@ -214,6 +214,9 @@ class Decoder(nn.Module):
 
         x = torch.zeros((batch_size, self.node_inp_size)).to(z)
         node_embeddings = [x,]
+
+
+        edge_num = 0
 
         for i in range(max_seq_length):
 
@@ -243,9 +246,6 @@ class Decoder(nn.Module):
                 node_embeddings.append(node_emb)
                 continue
 
-            node_embeddings.append(node_emb)
-            continue
-
             # Generate edges
             self.edge_cell.set_hidden(self.node_cell.get_hidden())
 
@@ -260,12 +260,14 @@ class Decoder(nn.Module):
             edge_emb_seq  = edge_emb_seq.view(-1, edge_emb_seq.shape[-1])
             edge_pred_seq = [c(edge_emb_seq) for c in self.edge_classifiers]
 
-            edge_target = bond_y[i, :len(x)].view(-1, bond_y.shape[-1])
+            edge_target = bond_y[edge_num:edge_num+len(x)].view(-1, bond_y.shape[-1])
             edge_loss  += self.calc_edge_loss(edge_pred_seq, edge_target)
 
             # Reset node lstm state and set context
             self.node_cell.set_hidden(self.edge_cell.get_hidden())
             node_embeddings.append(node_emb)
+
+            edge_num += len(x)
 
             '''
             if i % 4 == 0:
@@ -274,6 +276,6 @@ class Decoder(nn.Module):
                 node_embeddings = [emb.detach() for emb in node_embeddings]
             '''
 
-        recon_loss = node_loss + edge_loss
+        recon_loss = node_loss/max_seq_length + edge_loss/edge_num
 
         return recon_loss

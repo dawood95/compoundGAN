@@ -14,9 +14,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from models.network import CVAEF
 
 from data.zinc import ZINC250K, ZINC_collate
+from data.qm9 import QM9, QM9_collate
 from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
+
+Dataset = QM9
+Dataset_collate = QM9_collate
 
 parser = argparse.ArgumentParser()
 
@@ -80,20 +84,22 @@ if __name__ == "__main__":
     dist.init_process_group(dist.Backend.NCCL)
 
     # Dataloader
-    dataset = ZINC250K(args.data_file)
+    dataset = Dataset(args.data_file)
 
     train_dataset = dataset
     val_dataset   = deepcopy(dataset)
-    split_len     = int(len(train_dataset)*0.9)
+    split_len     = int(len(train_dataset)*0.5)
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
 
-    train_sampler = distributed.DistributedSampler(train_dataset)
+    train_sampler = distributed.DistributedSampler(train_dataset, shuffle=True)
+    val_sampler   = distributed.DistributedSampler(val_dataset, shuffle=False)
+
     train_loader = DataLoader(train_dataset,
                               batch_size=args.batch_size,
                               shuffle=False,
                               num_workers=args.num_workers,
-                              collate_fn=ZINC_collate,
+                              collate_fn=Dataset_collate,
                               sampler=train_sampler,
                               pin_memory=args.cuda,
                               drop_last=True)
@@ -102,7 +108,8 @@ if __name__ == "__main__":
                             batch_size=args.batch_size,
                             shuffle=False,
                             num_workers=args.num_workers,
-                            collate_fn=ZINC_collate,
+                            collate_fn=Dataset_collate,
+                            sampler=val_sampler,
                             pin_memory=args.cuda,
                             drop_last=True)
 
@@ -127,7 +134,7 @@ if __name__ == "__main__":
     model = DDP(model, device_ids=[args.local_rank])
 
     # Optimizer
-    optimizer = RAdam(
+    optimizer = Adam(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay

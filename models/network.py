@@ -5,6 +5,7 @@ from math import pi, log
 
 from .encoder import Encoder
 from .transformer_decoder import Decoder
+#from .decoder import Decoder
 
 from .cnf.ode import ODEnet, ODEfunc
 from .cnf.cnf import CNF
@@ -25,6 +26,8 @@ class CVAEF(nn.Module):
         self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
         self.decoder = Decoder(latent_dim, node_dims, edge_dims,
                                num_decoder_layers, num_head=8, ff_dim=2048)
+        # self.decoder = Decoder(latent_dim, node_dims, edge_dims,
+        #                        num_decoder_layers)
 
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)
