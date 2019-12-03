@@ -141,6 +141,22 @@ class Decoder(nn.Module):
         node_emb    = node_emb + pos_emb
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
+        G = dgl.batch(G)
+        G.to(z.device)
+        G.add_nodes(seq_length)
+
+        print(G)
+        exit(-1)
+        
+        '''
+        G.apply_edges(self.predict_edge)
+
+        edge_preds = []
+        for i in range(len(self.edge_classifiers)):
+            edge_preds.append(G.edata[str(i)])
+
+        G.edata['feats'] = torch.cat(edge_preds, -1)
+        '''
 
         for b in range(batch_size):
             num_node = seq_length
