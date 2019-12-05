@@ -19,8 +19,11 @@ from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
 
-Dataset = QM9
-Dataset_collate = QM9_collate
+# Dataset = QM9
+# Dataset_collate = QM9_collate
+
+Dataset = ZINC250K
+Dataset_collate = ZINC_collate
 
 parser = argparse.ArgumentParser()
 

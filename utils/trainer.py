@@ -68,7 +68,7 @@ class Trainer:
 
             self.save(temp=self.temp_weights_file)
 
-            if self.scheduler and self.scheduler.get_lr()[0] > 1e-5:
+            if self.scheduler and self.scheduler.get_lr()[0] > 5e-6:
                 self.scheduler.step()
 
             # Increment epoch
@@ -82,11 +82,12 @@ class Trainer:
                 self.recon_thresh = min(self.recon_thresh, 0.40)
             '''
 
+            '''
             if (train_recon_loss < self.recon_thresh) and (self.seq_len > 50):
                 self.prior_factor = self.prior_factor + 0.001
-                self.prior_factor = min(1e-1, self.prior_factor)
+                self.prior_factor = min(1e-2, self.prior_factor)
                 self.write('New prior factor = %1.4f'%(self.prior_factor))
-
+            '''
 
     def save(self, **kwargs):
         data = {

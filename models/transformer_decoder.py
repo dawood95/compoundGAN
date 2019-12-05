@@ -6,6 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.init import xavier_uniform_
 
+from dgl.nn.pytorch.conv import GraphConv
 
 class Decoder(nn.Module):
 
@@ -27,6 +28,12 @@ class Decoder(nn.Module):
             nn.TransformerDecoderLayer(hidden_dim, num_head, ff_dim),
             num_layers,
         )
+
+        self.gcn = nn.ModuleList([])
+        for i in range(6):
+            self.gcn.append(
+                GraphConv(hidden_dim, hidden_dim, activation=nn.SELU(True))
+            )
 
         self.edge_decoder = nn.TransformerDecoder(
             nn.TransformerDecoderLayer(hidden_dim, num_head, ff_dim),
@@ -138,34 +145,15 @@ class Decoder(nn.Module):
         node_target = atom_y.view(-1, atom_y.shape[-1])
         node_loss   = self.calc_node_loss(node_preds, node_target)
 
-        node_emb    = node_emb + pos_emb
-
         G = [dgl.DGLGraph() for _ in range(batch_size)]
-        G = dgl.batch(G)
-        G.to(z.device)
-        G.add_nodes(seq_length)
 
-        print(G)
-        exit(-1)
-        
-        '''
-        G.apply_edges(self.predict_edge)
-
-        edge_preds = []
-        for i in range(len(self.edge_classifiers)):
-            edge_preds.append(G.edata[str(i)])
-
-        G.edata['feats'] = torch.cat(edge_preds, -1)
-        '''
-
-        for b in range(batch_size):
+        for b, graph in enumerate(G):
             num_node = seq_length
 
-            G[b].add_nodes(num_node)
-            G[b].ndata['emb'] = node_emb[b, :num_node]
+            graph.add_nodes(num_node)
+            graph.to(z.device)
 
-
-            G[b].ndata['feats'] = pred_node_feats[b, :num_node]
+            graph.ndata['h'] = node_emb[:, b, :]
 
             if num_node > 12:
                 num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
@@ -175,14 +163,25 @@ class Decoder(nn.Module):
             edge_start = []
             edge_end   = []
             for i in range(num_node):
-                for j in range(i):
+                for j in range(i+1):
                     if ((i > 12) and (j < (i - 12))): continue
                     edge_start.append(i)
                     edge_end.append(j)
 
-            G[b].add_edges(edge_start, edge_end)
+            graph.add_edges(edge_start, edge_end)
 
+        G = dgl.batch(G)
 
+        feats = G.ndata['h']
+        for l in self.gcn:
+            feats = feats + l(G, feats)
+        G.ndata['h'] = feats
+        G = dgl.unbatch(G)
+
+        node_feats = [g.ndata['h'].unsqueeze(1) for g in G]
+        node_feats = torch.cat(node_feats, 1)
+
+        node_emb    = node_feats + pos_emb
         edge_memory = torch.cat([z.unsqueeze(0), node_emb], 0)
 
         edge_decoder_emb = []
@@ -259,7 +258,7 @@ class Decoder(nn.Module):
 
             node_emb = node_emb[-1]
 
-            pred_node_embs.append(node_emb.unsqueeze(0) + pos_emb)
+            pred_node_embs.append(node_emb.unsqueeze(0))
 
             node_pred = [c(node_emb) for c in self.node_classifiers]
             node_pred = [F.softmax(pred, -1) for pred in node_pred]
@@ -284,6 +283,7 @@ class Decoder(nn.Module):
 
             decoder_inputs.append(next_input)
 
+            '''
             if i == 0:
                 continue
 
@@ -300,21 +300,111 @@ class Decoder(nn.Module):
             edge_preds = torch.cat(edge_preds, -1)
 
             pred_edge_feats.append(edge_preds)
+            '''
 
-        pred_node_feats = torch.cat(pred_node_feats, 1)
-        pred_edge_feats = torch.cat(pred_edge_feats, 0)
-        # node_embeddings = torch.cat(pred_node_embs, 1)
-        num_nodes[num_nodes == -1] = pred_node_feats.shape[1]
+        num_nodes[num_nodes == -1] = len(pred_node_feats)
+
+        seq_length = int(max(num_nodes).item())
+        pos_emb    = self.build_inputs(batch_size, seq_length).to(z)
+
+        pred_node_embs = torch.cat(pred_node_embs, 0)
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
 
-        for b in range(batch_size):
+        for b, graph in enumerate(G):
 
             num_node = int(num_nodes[b].item())
 
-            G[b].add_nodes(num_node)
-            # G[b].ndata['emb'] = node_embeddings[b, :num_node]
-            G[b].ndata['feats'] = pred_node_feats[b, :num_node]
+            graph.add_nodes(num_node)
+            graph.to(z.device)
+
+            graph.ndata['h'] = pred_node_embs[:num_node, b, :]
+
+            if num_node > 12:
+                num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
+            else:
+                num_edge = (num_node * (num_node - 1))//2
+
+            edge_start = []
+            edge_end   = []
+            for i in range(num_node):
+                for j in range(i+1):
+                    if ((i > 12) and (j < (i - 12))): continue
+                    edge_start.append(i)
+                    edge_end.append(j)
+
+            graph.add_edges(edge_start, edge_end)
+
+        G = dgl.batch(G)
+        feats = G.ndata['h']
+        for l in self.gcn:
+            feats = feats + l(G, feats)
+        G.ndata['h'] = feats
+        G = dgl.unbatch(G)
+
+        node_embs  = torch.zeros(seq_length, len(G), pred_node_embs.shape[-1])
+        for b, graph in enumerate(G):
+            num_node = int(num_nodes[b].item())
+            node_embs[:num_node, b, :] = graph.ndata['h']
+
+        node_embs   = node_embs + pos_emb
+        edge_memory = torch.cat([z.unsqueeze(0), node_embs], 0)
+
+        edge_decoder_emb = []
+        edge_memory_mask = []
+        edge_groups = []
+        for i in range(1, seq_length):
+            start = max(0, i - 12)
+            end   = i
+            edge_decoder_emb.append(node_embs[start:end])
+            edge_groups.append(end-start)
+
+            memory_mask = torch.ones(end-start, seq_length + 1) * float('-inf')
+            memory_mask[:, [0, i+1]] = 0.0
+
+            edge_memory_mask.append(memory_mask)
+
+        edge_decoder_emb = torch.cat(edge_decoder_emb, 0)
+        edge_memory_mask = torch.cat(edge_memory_mask, 0).to(z)
+
+        edge_decoder_mask = torch.ones(len(edge_decoder_emb), len(edge_decoder_emb))
+        edge_decoder_mask.fill_(float('-inf'))
+        edge_decoder_mask = edge_decoder_mask.to(z)
+
+        edge_num = 0
+        for n in edge_groups:
+            s = edge_num
+            e = edge_num + n
+            edge_decoder_mask[s:e, s:e] = 0.0
+            edge_num = e
+
+        # print(edge_decoder_emb.shape)
+        # print(edge_memory.shape)
+        # print(edge_decoder_mask.shape)
+        # print(edge_memory_mask.shape)
+
+        edge_emb = self.edge_decoder(
+            tgt = edge_decoder_emb,
+            memory = edge_memory,
+            tgt_mask = edge_decoder_mask,
+            memory_mask = edge_memory_mask,
+        )
+
+        edge_preds = [c(edge_emb) for c in self.edge_classifiers]
+        edge_preds = [F.softmax(pred, -1) for pred in edge_preds]
+        edge_preds = torch.cat(edge_preds, -1)
+
+        pred_node_feats = torch.cat(pred_node_feats, 1)
+        pred_edge_feats = edge_preds
+
+        G = [dgl.DGLGraph() for _ in range(batch_size)]
+
+        for b, graph in enumerate(G):
+
+            num_node = int(num_nodes[b].item())
+
+            graph.add_nodes(num_node)
+            graph.ndata['feats'] = pred_node_feats[b, :num_node]
 
             if num_node > 12:
                 num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
@@ -329,20 +419,10 @@ class Decoder(nn.Module):
                     edge_start.append(i)
                     edge_end.append(j)
 
-            G[b].add_edges(edge_start, edge_end)
-            G[b].edata['feats'] = pred_edge_feats[:num_edge, b]
+            graph.add_edges(edge_start, edge_end)
+            graph.edata['feats'] = pred_edge_feats[:num_edge, b]
 
         G = dgl.batch(G)
         G.to(z.device)
-
-        '''
-        G.apply_edges(self.predict_edge)
-
-        edge_preds = []
-        for i in range(len(self.edge_classifiers)):
-            edge_preds.append(G.edata[str(i)])
-
-        G.edata['feats'] = torch.cat(edge_preds, -1)
-        '''
 
         return G
