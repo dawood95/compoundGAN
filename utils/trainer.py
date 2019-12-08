@@ -46,6 +46,9 @@ class Trainer:
 
             self.write('EPOCH #%d\n'%(self.epoch))
 
+            # recon_loss, entropy_loss, prior_loss = self.val_vae()
+            # print(recon_loss, entropy_loss, prior_loss)
+
             with self.logger.experiment.train():
                 # Train VAE
                 recon_loss, entropy_loss, prior_loss = self.train_vae()
@@ -57,7 +60,7 @@ class Trainer:
 
             train_recon_loss = recon_loss
 
-            if i%3 == 0:
+            if i%5 == 0:
                 with self.logger.experiment.validate():
                     recon_loss, entropy_loss, prior_loss = self.val_vae()
                     self.logger.experiment.log_metrics({
@@ -130,7 +133,7 @@ class Trainer:
             loss.backward()
 
             # clip gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
 
             self.optim.step()
 

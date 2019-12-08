@@ -19,11 +19,11 @@ from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
 
-# Dataset = QM9
-# Dataset_collate = QM9_collate
+Dataset = QM9
+Dataset_collate = QM9_collate
 
-Dataset = ZINC250K
-Dataset_collate = ZINC_collate
+# Dataset = ZINC250K
+# Dataset_collate = ZINC_collate
 
 parser = argparse.ArgumentParser()
 
@@ -39,11 +39,11 @@ parser.add_argument('--weight-decay', type=float, default=0)
 parser.add_argument('--node-dims', type=list, default=[43, 7, 3, 3])
 parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
 
-parser.add_argument('--latent-dim', type=int, default=256)
+parser.add_argument('--latent-dim', type=int, default=128)
 
-parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256])
-parser.add_argument('--cnf-context-dim', type=int, default=0)
-parser.add_argument('--cnf-T', type=float, default=1.0)
+parser.add_argument('--cnf-hidden-dims', type=list, default=[128, 128, 128, 128])
+parser.add_argument('--cnf-context-dim', type=int, default=1)
+parser.add_argument('--cnf-T', type=float, default=0.9)
 parser.add_argument('--cnf-train-T', type=eval, default=True)
 
 parser.add_argument('--ode-solver', type=str, default='dopri5')
@@ -58,7 +58,7 @@ parser.add_argument('--cuda', action='store_true', default=False)
 parser.add_argument('--track', action='store_true', default=False)
 parser.add_argument('--comment', type=str, default='')
 
-parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--global-rank', type=int)
 
 # for torch distributed launch
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     rank_seed = int(rank_seed)
     seed = args.seed + rank_seed
 
-    random.seed(seed)
+    random.seed(args.seed)
     torch.manual_seed(seed)
     if args.cuda:
         torch.cuda.manual_seed(seed)
@@ -94,6 +94,8 @@ if __name__ == "__main__":
     split_len     = int(len(train_dataset)*0.5)
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
+
+    print(val_dataset.data[:10])
 
     train_sampler = distributed.DistributedSampler(train_dataset, shuffle=True)
     val_sampler   = distributed.DistributedSampler(val_dataset, shuffle=False)

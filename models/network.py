@@ -25,7 +25,7 @@ class CVAEF(nn.Module):
 
         self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
         self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-                               num_decoder_layers, num_head=8, ff_dim=2048)
+                               num_decoder_layers, num_head=8, ff_dim=1024)
         # self.decoder = Decoder(latent_dim, node_dims, edge_dims,
         #                        num_decoder_layers)
 
@@ -53,7 +53,7 @@ class CVAEF(nn.Module):
 
     def forward(self, data):
 
-        G, atom_i, atom_x, atom_y, bond_y = data
+        G, atom_i, atom_x, atom_y, bond_y, logP = data
 
         mu, logvar = self.encoder(G)
         z = self.reparameterize(mu, logvar)
@@ -69,7 +69,7 @@ class CVAEF(nn.Module):
 
         # return reconstruction_loss, entropy_loss, torch.Tensor([0.,])
 
-        w, delta_log_pw = self.cnf(z, None)
+        w, delta_log_pw = self.cnf(z, logP)
         log_pw = self.stdnormal_logprob(w).sum(-1, keepdim=True)
         log_pz = log_pw - delta_log_pw
         prior_loss = -log_pz.mean()

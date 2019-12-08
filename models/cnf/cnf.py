@@ -51,7 +51,7 @@ class CNF(nn.Module):
 
         state_t = self.odeint(
             self.odefunc,
-            (x, _logpx),
+            (x, _logpx, context),
             integration_times,
             atol=self.atol,
             rtol=self.rtol,
@@ -59,7 +59,7 @@ class CNF(nn.Module):
         )
 
         state_t = (s[-1] for s in state_t)
-        z_t, logpz_t = state_t
+        z_t, logpz_t, _ = state_t
 
         return z_t, logpz_t
 

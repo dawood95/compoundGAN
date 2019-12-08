@@ -77,7 +77,7 @@ class ODEfunc(nn.Module):
 
     def forward(self, t, states):
         y = states[0]
-
+        c = states[2]
         t = torch.ones(y.size(0), 1).to(y) * t
 
         # is the clone detach required ?
@@ -85,10 +85,9 @@ class ODEfunc(nn.Module):
         # .clone().detach().requires_grad_(True).type_as(y)
 
         # just to be sure
+        c.requires_grad_(True)
         t.requires_grad_(True)
         y.requires_grad_(True)
-
-        c = None
 
         self.num_evals += 1
 
@@ -98,9 +97,11 @@ class ODEfunc(nn.Module):
 
         # I guess need to set this for inference ?
         with torch.set_grad_enabled(True):
-            context = t
-            if c is not None: context = torch.cat([t, c], -1)
+            if len(c) > 0:
+                context = torch.cat([t, c], -1)
+            else:
+                context = t
             dy = self.diffeq(y, context)
             divergence = self.divergence_fn(dy, y, self.e).view(-1, 1)
 
-        return dy, -divergence
+        return dy, -divergence, torch.zeros_like(c).requires_grad_(True)

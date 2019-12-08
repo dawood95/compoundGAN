@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem import Descriptors
 from torch.utils import data
 
 from .utils import mol2graph, Library
@@ -28,7 +29,7 @@ class QM9(data.Dataset):
         smiles = self.data[idx]
         mol = Chem.MolFromSmiles(smiles)
         item = mol2graph(mol, self.seq_length)
-        # G, atom_idx, atom_feats, atom_targets, bond_targets
+        item = [*item, Descriptors.MolLogP(mol)]
         return item
 
     def __len__(self):
@@ -38,9 +39,10 @@ class QM9(data.Dataset):
 def QM9_collate(x):
     batch_size = len(x)
 
-    graphs, atom_idx, atom_x, atom_y, bond_y = map(list, zip(*x))
+    graphs, atom_idx, atom_x, atom_y, bond_y, logP = map(list, zip(*x))
 
     graphs = dgl.batch(graphs)
+    batch_logP = torch.tensor(logP, dtype=float).unsqueeze(-1)
 
     max_seq_len = 0
     for ay in atom_y:
@@ -48,7 +50,7 @@ def QM9_collate(x):
 
     batch_atom_idx = torch.zeros((max_seq_len, batch_size, atom_idx[-1].shape[-1]))
     batch_atom_x   = torch.zeros((max_seq_len, batch_size, atom_x[-1].shape[-1]))
-    batch_atom_y = -1 * torch.ones((max_seq_len, batch_size, atom_y[-1].shape[-1]))
+    batch_atom_y   = -1 * torch.ones((max_seq_len, batch_size, atom_y[-1].shape[-1]))
 
     for b, aidx in enumerate(atom_idx):
         batch_atom_idx[:len(aidx), b] = aidx
@@ -70,4 +72,4 @@ def QM9_collate(x):
 
     return graphs, \
         batch_atom_idx.float(), batch_atom_x.float(), \
-        batch_atom_y.long(), batch_bond_y.long()
+        batch_atom_y.long(), batch_bond_y.long(), batch_logP.float()
