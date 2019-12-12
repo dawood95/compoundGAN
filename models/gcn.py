@@ -25,7 +25,8 @@ class MolConv(nn.Module):
         self.reset_parameters()
 
         self.act = nn.SELU(True)
-        self.bn  = nn.BatchNorm1d(out_feats)
+        self.bn  = nn.LayerNorm(out_feats)
+        #self.bn  = nn.BatchNorm1d(out_feats)
 
         self.reset_parameters()
 

@@ -27,7 +27,8 @@ class Trainer:
         self.log_step     = 25
 
         self.prior_factor   = 1e-3
-        self.entropy_factor = 1e-3
+        self.prior_step     = 0
+        self.prior_counter  = 0#int(1 / self.prior_step)
         self.recon_thresh   = 0.20
 
         self.vae_train_step  = 0
@@ -92,6 +93,7 @@ class Trainer:
                 self.write('New prior factor = %1.4f'%(self.prior_factor))
             '''
 
+
     def save(self, **kwargs):
         data = {
             'epoch'      : self.epoch,
@@ -128,7 +130,7 @@ class Trainer:
             loss = 0
             loss = loss + recon_loss
             loss = loss + self.prior_factor*prior_loss
-            loss = loss + self.entropy_factor*entropy_loss
+            loss = loss + self.prior_factor*entropy_loss
 
             loss.backward()
 
@@ -136,11 +138,6 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
 
             self.optim.step()
-
-            '''
-            for p in self.model.parameters():
-                p.data[p.data.abs() < 1e-16] = 0
-            '''
 
             self.vae_train_step += 1
 
@@ -159,16 +156,26 @@ class Trainer:
                     'prior_loss'   : prior_loss,
                 }, step=self.vae_train_step)
                 self.write(
-                    'VAE Train [%4d : %4d] | '
+                    'VAE Train [%4d : %1.6f] | %d | '
                     'Reconstruction Loss=[%6.5f] | '
                     'Entropy Loss=[%6.5f] | '
                     'Prior Loss=[%6.5f] | '
                     'Num Evals=[%d]'%
-                    (i+1, log_seq_len,
+                    (i+1, self.prior_factor, self.prior_counter,
                      recon_loss, entropy_loss, prior_loss,
                      self.model.module.cnf.num_evals())
                 )
-                # self.write('%f'%self.model.module.cnf.num_evals())
+
+                '''
+                self.prior_factor += self.prior_step
+                self.prior_factor = min(self.prior_factor, 1.0)
+                if self.prior_factor >= 1.0:
+                    self.prior_counter -= 1
+
+                if self.prior_factor == 1.0 and self.prior_counter == 0:
+                    self.prior_factor = 0
+                    self.prior_counter = int(1 / self.prior_step)
+                '''
 
             del data, loss
 
@@ -240,11 +247,11 @@ class Trainer:
                     'prior_loss'   : prior_loss,
                 }, step=self.vae_val_step)
                 self.write(
-                    'VAE Val [%4d : %4d] | '
+                    'VAE Val [%4d] | '
                     'Reconstruction Loss=[%6.5f] | '
                     'Entropy Loss=[%6.5f] | '
                     'Prior Loss=[%6.5f]'%
-                    (i+1, log_seq_len,
+                    (i+1,
                      recon_loss, entropy_loss, prior_loss)
                 )
 

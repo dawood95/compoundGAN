@@ -20,6 +20,7 @@ class Decoder(nn.Module):
 
         self.node_project = nn.Sequential(
             nn.Linear(node_input_dim, hidden_dim, bias=bias),
+            nn.LayerNorm(hidden_dim),
             nn.SELU(True)
         )
 
@@ -30,8 +31,9 @@ class Decoder(nn.Module):
 
         self.gcn = nn.ModuleList([])
         for i in range(6):
+            activation = nn.Sequential(nn.LayerNorm(hidden_dim), nn.SELU(True))
             self.gcn.append(
-                GraphConv(hidden_dim, hidden_dim, activation=nn.SELU(True))
+                GraphConv(hidden_dim, hidden_dim, activation=activation)
             )
 
         self.edge_decoder = nn.TransformerDecoder(
@@ -56,10 +58,10 @@ class Decoder(nn.Module):
         self.one_hot_dims   = node_feats
 
         sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
-        sin_freq = 1 / (1_00 ** sin_freq)
+        sin_freq = 1 / (1_000 ** sin_freq)
 
         cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
-        cos_freq = 1 / (1_00 ** cos_freq)
+        cos_freq = 1 / (1_000 ** cos_freq)
 
         x = torch.arange(0, 100) # 100 = max nodes
 
@@ -152,7 +154,7 @@ class Decoder(nn.Module):
 
         batch_size = z.shape[0]
         seq_length = atom_y.shape[0]
-                
+
         atom_x = self.node_project(atom_x)
 
         pos_emb        = self.build_inputs(batch_size, seq_length).to(z)
@@ -172,7 +174,8 @@ class Decoder(nn.Module):
         node_preds  = [pred.view(-1, pred.shape[-1]) for pred in node_preds]
         node_target = atom_y.view(-1, atom_y.shape[-1])
         node_loss   = self.calc_node_loss(node_preds, node_target)
-        
+
+        '''
         atom_x = []
         for j, emb_size in enumerate(self.one_hot_dims):
             target = atom_y[:, :, j].data.cpu().clone()
@@ -181,8 +184,8 @@ class Decoder(nn.Module):
             atom_x.append(emb)
         atom_x = torch.cat(atom_x, -1).float().to(z)
         
-        atom_x = self.node_project(atom_x)
-        node_emb = atom_x + pos_emb
+        node_emb = self.node_project(atom_x)
+        '''
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
 
@@ -217,14 +220,14 @@ class Decoder(nn.Module):
 
         feats = G.ndata['h']
         for l in self.gcn:
-            feats = feats + l(G, feats)
+            feats = l(G, feats)
         G.ndata['h'] = feats
         G = dgl.unbatch(G)
 
         node_feats = [g.ndata['h'].unsqueeze(1) for g in G]
         node_feats = torch.cat(node_feats, 1)
 
-        node_emb    = node_feats # + pos_emb
+        node_emb    = node_feats + pos_emb
         edge_memory = torch.cat([z.unsqueeze(0), node_emb], 0)
 
         edge_decoder_emb = []
@@ -263,7 +266,6 @@ class Decoder(nn.Module):
         )
 
         edge_preds  = [c(edge_emb) for c in self.edge_classifiers]
-        # print(edge_preds[0].argmax(-1) == bond_y[:, :, 0])
         edge_preds  = [pred.view(-1, pred.shape[-1]) for pred in edge_preds]
         edge_target = bond_y.view(-1, bond_y.shape[-1])
         edge_loss   = self.calc_node_loss(edge_preds, edge_target)
@@ -309,7 +311,7 @@ class Decoder(nn.Module):
 
             cond1 = node_pred[0].argmax(1) == self.end_node
             cond2 = num_nodes == -1
-            num_nodes[cond1 & cond2] = i + 1
+            num_nodes[cond1 & cond2] = i #+ 1
 
             node_emb = []
             for j, emb_size in enumerate(self.one_hot_dims):
@@ -359,7 +361,6 @@ class Decoder(nn.Module):
         G = [dgl.DGLGraph() for _ in range(batch_size)]
 
         for b, graph in enumerate(G):
-
             num_node = int(num_nodes[b].item())
 
             graph.add_nodes(num_node)
@@ -386,7 +387,7 @@ class Decoder(nn.Module):
 
         feats = G.ndata['h']
         for l in self.gcn:
-            feats = feats + l(G, feats)
+            feats = l(G, feats)
         G.ndata['h'] = feats
         G = dgl.unbatch(G)
 
@@ -395,7 +396,7 @@ class Decoder(nn.Module):
             num_node = int(num_nodes[b].item())
             node_embs[:num_node, b, :] = graph.ndata['h']
 
-        node_embs   = node_embs # + pos_emb
+        node_embs   = node_embs + pos_emb
         edge_memory = torch.cat([z.unsqueeze(0), node_embs], 0)
 
         edge_decoder_emb = []

@@ -25,7 +25,7 @@ class CVAEF(nn.Module):
 
         self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
         self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-                               num_decoder_layers, num_head=8, ff_dim=1024)
+                               num_decoder_layers, num_head=8, ff_dim=2048)
         # self.decoder = Decoder(latent_dim, node_dims, edge_dims,
         #                        num_decoder_layers)
 
