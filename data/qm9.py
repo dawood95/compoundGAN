@@ -19,7 +19,9 @@ class QM9(data.Dataset):
         super().__init__()
         data_file = Path(data_file).as_posix()
         data = pd.read_csv(data_file)
-        data = list(data['smiles'])
+        data = data['smiles']
+        data = filter(lambda x: len(x) > 1, data)
+        data = list(data)
         random.shuffle(data)
 
         self.data = data
@@ -68,6 +70,8 @@ def QM9_collate(x):
 
     batch_bond_y = -1 * torch.ones((num_edges, batch_size, bond_y[-1].shape[-1]))
     for b, by in enumerate(bond_y):
+        if len(by) == 0:
+            exit(-1)
         batch_bond_y[:len(by), b] = by
 
     return graphs, \

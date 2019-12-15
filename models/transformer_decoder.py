@@ -10,7 +10,8 @@ from dgl.nn.pytorch.conv import GraphConv
 
 class Decoder(nn.Module):
 
-    def __init__(self, latent_dim, node_feats, edge_feats, num_layers=1, bias=True,
+    def __init__(self, latent_dim, node_feats, edge_feats,
+                 num_layers=1, bias=True,
                  num_head=1, ff_dim=1024):
 
         super().__init__()
@@ -118,6 +119,10 @@ class Decoder(nn.Module):
         cos_emb = torch.cos(torch.einsum('i,d->id', x, self.cos_freq))
 
         sin_emb = sin_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
+
+
+
+
         cos_emb = cos_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
 
         embedding[:, :, 0:self.hidden_dim:2] = sin_emb.clone().detach()
@@ -126,22 +131,18 @@ class Decoder(nn.Module):
         return embedding
         '''
 
-    def predict_edge(self, edges):
-        src_feats = edges.src['emb']
-        dst_feats = edges.dst['emb']
-        feats = torch.cat([src_feats, dst_feats], -1)
-        feats = [c(feats) for c in self.edge_classifiers]
-        preds = {}
-        for i in range(len(feats)):
-            preds[str(i)] = feats[i]
-        return preds
-
     def generate_square_mask(self, sz):
         mask = torch.triu(torch.ones(sz, sz), 1)
         mask = mask.float().masked_fill(mask == 1, float('-inf'))
         mask = mask.masked_fill(mask == 0, float(0.0))
         return mask
 
+    def generate_diagonal_mask(self, sz):
+        mask = torch.ones(sz, sz) * float('-inf')
+        diag = torch.diagonal(mask)
+        diag[:] = 0.0
+        return mask
+        
     def calc_node_loss(self, node_pred, node_target):
         total_node_loss = 0
         for i in range(node_target.shape[-1]):
@@ -154,20 +155,21 @@ class Decoder(nn.Module):
 
         batch_size = z.shape[0]
         seq_length = atom_y.shape[0]
-
-        atom_x = self.node_project(atom_x)
-
+        
+        atom_x         = self.node_project(atom_x)
         pos_emb        = self.build_inputs(batch_size, seq_length).to(z)
-        decoder_inputs = pos_emb + atom_x
+        decoder_inputs = atom_x + pos_emb
 
-        decoder_mask = self.generate_square_mask(seq_length).to(z)
-        padding_mask = (atom_y[:seq_length, :, 0] == -1).T
+        diagonal_mask = self.generate_diagonal_mask(seq_length).to(z)
+        square_mask   = self.generate_square_mask(seq_length).to(z)
+
+        context = torch.cat([z.unsqueeze(0), decoder_inputs[:-1]], 0)
 
         node_emb = self.node_decoder(
             tgt = decoder_inputs,
-            memory = z.unsqueeze(0),
-            tgt_mask = decoder_mask,
-            tgt_key_padding_mask = padding_mask
+            memory = context,
+            tgt_mask = diagonal_mask,
+            memory_mask = square_mask
         )
 
         node_preds  = [c(node_emb) for c in self.node_classifiers]
@@ -189,16 +191,16 @@ class Decoder(nn.Module):
 
         G = [dgl.DGLGraph() for _ in range(batch_size)]
 
-        num_nodes = ((atom_y[:, :, 0] != -1) & (atom_y[:, :, 0] != 42))
+        num_nodes = (atom_y[:, :, 0] != -1) & (atom_y[:, :, 0] != 42)
         num_nodes = num_nodes.int().sum(0)
-        
+
         for b, graph in enumerate(G):
             # add all the nodes,
             # but only edges for node
             # right before the end node
             num_node = num_nodes[b].item()
 
-            graph.add_nodes(seq_length)
+            graph.add_nodes(num_node)
 
             if num_node > 12:
                 num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
@@ -212,7 +214,7 @@ class Decoder(nn.Module):
 
             graph = dgl.transform.add_self_loop(graph)
             graph.to(z.device)
-            graph.ndata['h'] = node_emb[:, b, :]
+            graph.ndata['h'] = node_emb[:num_node, b, :]
 
             G[b] = graph
 
@@ -224,29 +226,43 @@ class Decoder(nn.Module):
         G.ndata['h'] = feats
         G = dgl.unbatch(G)
 
-        node_feats = [g.ndata['h'].unsqueeze(1) for g in G]
-        node_feats = torch.cat(node_feats, 1)
+        for b, g in enumerate(G):
+            num_node = num_nodes[b].item()
+            node_emb[:num_node, b, :] = g.ndata['h']
 
-        node_emb    = node_feats + pos_emb
+        # node_feats = [g.ndata['h'].unsqueeze(1) for g in G]
+        # node_feats = torch.cat(node_feats, 1)
+
+        node_emb    = node_emb + pos_emb
         edge_memory = torch.cat([z.unsqueeze(0), node_emb], 0)
 
         edge_decoder_emb = []
         edge_memory_mask = []
         edge_groups = []
         for i in range(1, seq_length):
+
+            pos_emb_i = pos_emb[i]
+            
             start = max(0, i - 12)
             end   = i
+
+            edge_decoder_emb.append(pos_emb[start:end] + pos_emb_i)
+
+            '''
             edge_decoder_emb.append(node_emb[start:end])
             edge_groups.append(end-start)
 
             memory_mask = torch.ones(end-start, seq_length + 1) * float('-inf')
-            memory_mask[:, [0, i+1]] = 0.0
+            # memory_mask[:, [0, i+1]] = 0.0
+            memory_mask[:, :i+2] = 0.0
 
             edge_memory_mask.append(memory_mask)
-
+            '''
+            
         edge_decoder_emb = torch.cat(edge_decoder_emb, 0)
-        edge_memory_mask = torch.cat(edge_memory_mask, 0).to(z)
+        # edge_memory_mask = torch.cat(edge_memory_mask, 0).to(z)
 
+        '''
         edge_decoder_mask = torch.ones(len(edge_decoder_emb), len(edge_decoder_emb))
         edge_decoder_mask.fill_(float('-inf'))
         edge_decoder_mask = edge_decoder_mask.to(z)
@@ -263,6 +279,18 @@ class Decoder(nn.Module):
             memory = edge_memory,
             tgt_mask = edge_decoder_mask,
             memory_mask = edge_memory_mask,
+        )
+        '''
+
+        mem_key_mask = (atom_y[:, :, 0] == -1 | atom_y[:, :, 0] == 42).T
+        mem_key_mask = torch.cat([torch.zeros(batch_size, 1).to(mem_key_mask),
+                                  mem_key_mask], 1)
+        
+        edge_emb = self.edge_decoder(
+            tgt = edge_decoder_emb,
+            memory = edge_memory,
+            memory_key_padding_mask = mem_key_mask,
+            tgt_key_padding_mask = (bond_y[:, :, 0] == -1).T
         )
 
         edge_preds  = [c(edge_emb) for c in self.edge_classifiers]
@@ -409,7 +437,8 @@ class Decoder(nn.Module):
             edge_groups.append(end-start)
 
             memory_mask = torch.ones(end-start, seq_length + 1) * float('-inf')
-            memory_mask[:, [0, i+1]] = 0.0
+            #memory_mask[:, [0, i+1]] = 0.0
+            memory_mask[:, :i+2] = 0.0
 
             edge_memory_mask.append(memory_mask)
 

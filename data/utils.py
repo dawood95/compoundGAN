@@ -162,6 +162,9 @@ def mol2graph(mol, num_nodes=np.inf):
     atom_sub  = atom_seq[start_idx:end_idx]
 
     num_nodes = len(atom_idx)
+    # if len(atom_idx) > len(atom_seq):
+    #     num_nodes -= 1
+    
     if num_nodes > 12:
         num_edges = ((12 // 2) * 11) + ((num_nodes - 12) * 12)
     else:
@@ -169,7 +172,7 @@ def mol2graph(mol, num_nodes=np.inf):
 
     edge_num = 0
     all_bond_targets = torch.zeros((num_edges, bond_targets.shape[-1]))
-    for i in range(len(atom_idx)):
+    for i in range(num_nodes):#len(atom_idx)):
         for j in range(i):
             idx_i = atom_idx[i]
             idx_j = atom_idx[j]
@@ -178,6 +181,7 @@ def mol2graph(mol, num_nodes=np.inf):
                 continue
 
             if idx_i == len(atom_seq):
+                all_bond_targets[edge_num, :] = -1
                 edge_num += 1
                 continue
 
