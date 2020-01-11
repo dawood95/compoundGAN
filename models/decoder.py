@@ -82,11 +82,14 @@ class Decoder(nn.Module):
         diagonal_mask = self.generate_diagonal_mask(seq_length).to(z)
         square_mask   = self.generate_square_mask(seq_length).to(z)
 
+        context = torch.cat([z.unsqueeze(0), token_x[:-1]], 0)
+
         token_emb = self.transformer(
             tgt = token_x,
-            memory = z.unsqueeze(0),
-            tgt_mask = square_mask,
-            tgt_key_padding_mask = (token_y[:, :, 0] == -1).T
+            memory = context,
+            tgt_mask = diagonal_mask,
+            memory_mask = square_mask
+            # tgt_key_padding_mask = (token_y[:, :, 0] == -1).T
         )
 
         token_preds = [c(token_emb) for c in self.classifiers]
