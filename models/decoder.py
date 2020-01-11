@@ -1,281 +1,105 @@
-import dgl
 import torch
-import numpy as np
 
 from torch import nn
 from torch.nn import functional as F
 
-from dgl.nn.pytorch.conv import GraphConv
-from .decoder_cell import DecoderCell
-
 class Decoder(nn.Module):
-    '''
-    z --> Graph
-    '''
-    def __init__(self, latent_size, node_feats, edge_feats,
-                 num_layers=1, bias=True):
+
+    def __init__(self, latent_dim, output_dims,
+                 num_layers=1, num_head=1, ff_dim=1024,
+                 dropout=0.1, bias=True):
 
         super().__init__()
 
-        hidden_size     = 128
-        node_input_size = hidden_size
-        edge_input_size = hidden_size
+        hidden_dim = latent_dim
 
-        self.latent_project = nn.ModuleList()
-        for i in range(num_layers):
-            self.latent_project.append(nn.Sequential(
-                nn.Linear(latent_size, hidden_size, bias=True),
-                nn.BatchNorm1d(hidden_size),
-                nn.SELU(True),
-            ))
+        self.token_project = nn.Sequential(
+            nn.Linear(sum(output_dims), hidden_dim, bias=bias),
+            nn.LayerNorm(hidden_dim),
+            nn.SELU(True)
+        )
 
-        self.node_cell = DecoderCell(node_input_size, hidden_size,
-                                     num_layers, bias)
-        self.edge_cell = DecoderCell(edge_input_size, hidden_size,
-                                     num_layers, bias)
+        decoder_layer = nn.TransformerDecoderLayer(
+            hidden_dim, num_head, ff_dim, dropout
+        )
 
-        self.node_classifiers = nn.ModuleList()
-        self.edge_classifiers = nn.ModuleList()
+        self.transformer = nn.TransformerDecoder(
+            decoder_layer, num_layers
+        )
 
-        for feat_size in node_feats:
-            self.node_classifiers.append(nn.Linear(hidden_size, feat_size, bias))
-        for feat_size in edge_feats:
-            self.edge_classifiers.append(nn.Linear(hidden_size, feat_size, bias))
+        self.classifiers = nn.ModuleList([
+            nn.Linear(hidden_dim, feat_dim, bias)
+            for feat_dim in output_dims
+        ])
 
-        self.end_node      = node_feats[0] - 1
-        self.node_inp_size = node_input_size
-        self.one_hot_sizes = node_feats
+        sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
+        sin_freq = 1 / (1_000 ** sin_freq)
+        cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
+        cos_freq = 1 / (1_000 ** cos_freq)
 
+        x = torch.arange(0, 500) # 100 = max tokens
 
-    def generate(self, z, max_nodes=50):
+        sin_emb = torch.sin(torch.einsum('i,d->id', x, sin_freq))
+        cos_emb = torch.cos(torch.einsum('i,d->id', x, cos_freq))
+        sin_emb = sin_emb.unsqueeze(1)
+        cos_emb = cos_emb.unsqueeze(1)
 
-        batch_size     = z.shape[0]
-        max_seq_length = max_nodes
+        embedding = torch.zeros(len(x), 1, hidden_dim)
+        embedding[:, :, 0:hidden_dim:2] = sin_emb
+        embedding[:, :, 1:hidden_dim:2] = cos_emb
 
-        num_nodes = -1*torch.ones(batch_size)
-        num_nodes = num_nodes.to(z)
+        self.pos_emb = embedding
 
-        # reset context
-        self.node_cell.reset_state(batch_size)
-        self.edge_cell.reset_state(batch_size)
+    def get_pos_emb(self, batch_size, seq_length, pos=None):
+        if pos is None:
+            embedding = self.pos_emb[:seq_length]
+        else:
+            embedding = self.pos_emb[pos].unsqueeze(0)
+        embedding = embedding.clone().detach()
+        embedding = embedding.repeat_interleave(batch_size, dim=1)
+        return embedding
 
-        # layerwise latent variable projection
-        latent_context = [l(z).unsqueeze(0) for l in self.latent_project]
-        latent_context = torch.cat(latent_context, 0)
+    def generate_square_mask(self, sz):
+        mask = torch.triu(torch.ones(sz, sz), 1)
+        mask = mask.float().masked_fill(mask == 1, float('-inf'))
+        mask = mask.masked_fill(mask == 0, float(0.0))
+        return mask
 
-        # set context
-        self.node_cell.set_context(latent_context)
-        self.edge_cell.set_context(latent_context)
+    def generate_diagonal_mask(self, sz):
+        mask = torch.ones(sz, sz) * float('-inf')
+        diag = torch.diagonal(mask)
+        diag[:] = 0.0
+        return mask
 
-        pred_node_feats = []
-        pred_edge_feats = []
+    def forward(self, z, token_x, token_y):
 
-        x = torch.zeros((batch_size, self.node_inp_size)).to(z)
-        node_embeddings = [x,]
+        batch_size = z.shape[0]
+        seq_length = token_x.shape[0]
 
-        for i in range(max_seq_length):
+        token_x = self.token_project(token_x)
+        token_x = token_x + self.get_pos_emb(batch_size, seq_length).to(z)
 
-            # nodeRNN input
-            x = node_embeddings[-1]
+        diagonal_mask = self.generate_diagonal_mask(seq_length).to(z)
+        square_mask   = self.generate_square_mask(seq_length).to(z)
 
-            # Generate a node
-            node_emb  = self.node_cell.forward_unit(x)
-            node_pred = [c(node_emb) for c in self.node_classifiers]
-            node_pred = [F.softmax(pred, -1) for pred in node_pred]
+        token_emb = self.transformer(
+            tgt = token_x,
+            memory = z.unsqueeze(0),
+            tgt_mask = square_mask,
+            tgt_key_padding_mask = (token_y[:, :, 0] == -1).T
+        )
 
-            cond1 = node_pred[0].argmax(1) == self.end_node
-            cond2 = num_nodes == -1
-            num_nodes[cond1 & cond2] = i + 1
+        token_preds = [c(token_emb) for c in self.classifiers]
+        token_preds = [pred.view(-1, pred.shape[-1]) for pred in token_preds]
+        token_tgt   = token_y.view(-1, token_y.shape[-1])
 
-            # Generate node embedding for target/pred (teacher forcing)
-            '''
-            node_emb = []
-            for j, emb_size in enumerate(self.one_hot_sizes):
-                target = node_pred[j].argmax(-1)
-                emb    = F.one_hot(target, emb_size)
-                node_emb.append(emb)
-            node_emb = torch.cat(node_emb, -1).float().to(z)
-            '''
-
-            node_pred = torch.cat(node_pred, -1)
-            pred_node_feats.append(node_pred.unsqueeze(1))
-
-            # Dont process edge if first node
-            if i == 0:
-                node_embeddings.append(node_emb)
-                continue
-
-            # node_embeddings.append(node_emb)
-            # continue
-
-            # Generate edges
-            self.edge_cell.set_hidden(self.node_cell.get_hidden())
-
-            # edgeRNN inputs
-            prev_node_embeddings = node_embeddings[:0:-1][:12]
-            x = [emb.unsqueeze(0) for emb in prev_node_embeddings]
-            x = torch.cat(x, 0)
-
-            # Generate edges
-            edge_emb_seq  = self.edge_cell.forward_seq(x)
-            edge_emb_seq  = edge_emb_seq[list(range(x.shape[0]))[::-1]]
-            edge_emb_seq  = edge_emb_seq.view(-1, edge_emb_seq.shape[-1])
-
-            edge_pred_seq = [c(edge_emb_seq) for c in self.edge_classifiers]
-            edge_pred_seq = [F.softmax(p, -1) for p in edge_pred_seq]
-
-            edge_types    = edge_pred_seq[0].argmax(-1)
-
-            edge_pred_seq = torch.cat(edge_pred_seq, -1)
-            edge_pred_seq = edge_pred_seq.view(len(x), batch_size, -1)
-
-            edge_types    = edge_types.view(len(x), batch_size)
-            edge_types    = edge_types.sum(0)
-
-            pred_edge_feats.append(edge_pred_seq)
-
-            # Reset node lstm state and set context
-            self.node_cell.set_hidden(self.edge_cell.get_hidden())
-            node_embeddings.append(node_emb)
-
-            if (num_nodes != -1).all(): break
-
-        pred_node_feats = torch.cat(pred_node_feats, 1)
-        pred_edge_feats = torch.cat(pred_edge_feats, 0)
-        num_nodes[num_nodes == -1] = pred_node_feats.shape[1]
-
-        G = [dgl.DGLGraph() for _ in range(batch_size)]
-
-        for b in range(batch_size):
-
-            num_node = int(num_nodes[b].item())
-
-            G[b].add_nodes(num_node)
-            G[b].ndata['feats'] = pred_node_feats[b, :num_node]
-
-            if num_node > 12:
-                num_edge = ((12 // 2) * 11) + ((num_node - 12) * 12)
-            else:
-                num_edge = (num_node * (num_node - 1))//2
-
-            edge_start = []
-            edge_end   = []
-            for i in range(num_node):
-                for j in range(i):
-                    if ((i > 12) and (j < (i - 12))): continue
-                    edge_start.append(i)
-                    edge_end.append(j)
-
-            G[b].add_edges(edge_start, edge_end)
-            G[b].edata['feats'] = pred_edge_feats[:num_edge, b]
-
-        G = dgl.batch(G)
-        G.to(z.device)
-
-        return G
-
-    def calc_node_loss(self, node_pred, node_target):
-        total_node_loss = 0
-        for i in range(node_target.shape[-1]):
-            loss = F.cross_entropy(node_pred[i], node_target[:, i],
+        total_loss = 0.
+        for i in range(token_tgt.shape[-1]):
+            loss = F.cross_entropy(token_preds[i], token_tgt[:, i],
                                    ignore_index=-1, reduction='mean')
-            total_node_loss += loss
-        return total_node_loss
+            total_loss += loss
 
-    def calc_edge_loss(self, edge_pred, edge_target):
-        total_edge_loss = 0
-        for i in range(edge_target.shape[-1]):
-            loss = F.cross_entropy(edge_pred[i], edge_target[:, i],
-                                   ignore_index=-1, reduction='mean')
-            total_edge_loss += loss
-        return total_edge_loss
-
-    def forward(self, z, atom_i, atom_x, atom_y, bond_y, max_nodes=np.inf):
-
-        batch_size     = z.shape[0]
-        seq_length     = atom_y.shape[0]
-        max_seq_length = min(seq_length, max_nodes)
-
-        # reset context
-        self.node_cell.reset_state(batch_size)
-        self.edge_cell.reset_state(batch_size)
-
-        # layerwise latent variable projection
-        latent_context = [l(z).unsqueeze(0) for l in self.latent_project]
-        latent_context = torch.cat(latent_context, 0)
-
-        # set context
-        self.node_cell.set_context(latent_context)
-        self.edge_cell.set_context(latent_context)
-
-        # Node and Edge Loss
-        node_loss = 0
-        edge_loss = 0
-
-        x = torch.zeros((batch_size, self.node_inp_size)).to(z)
-        node_embeddings = [x,]
+        return total_loss # / seq_length
 
 
-        edge_num = 0
 
-        for i in range(max_seq_length):
-
-            # nodeRNN input
-            x = node_embeddings[-1]
-
-            # Generate a node
-            node_emb  = self.node_cell.forward_unit(x)
-            node_pred = [c(node_emb) for c in self.node_classifiers]
-
-            # Calculate node loss
-            node_loss += self.calc_node_loss(node_pred, atom_y[i])
-
-            '''
-            # Generate node embedding for target/pred (teacher forcing)
-            node_emb = []
-            for j, emb_size in enumerate(self.one_hot_sizes):
-                target = atom_y[i, :, j].data.cpu().clone()
-                target[target == -1] = emb_size - 1
-                emb = F.one_hot(target, emb_size)
-                node_emb.append(emb)
-            node_emb = torch.cat(node_emb, -1).float().to(z)
-            '''
-
-            # Dont process edge if first node
-            if i == 0:
-                node_embeddings.append(node_emb)
-                continue
-
-            # Generate edges
-            self.edge_cell.set_hidden(self.node_cell.get_hidden())
-
-            # edgeRNN inputs
-            prev_node_embeddings = node_embeddings[:0:-1][:12]
-            x = [emb.unsqueeze(0) for emb in prev_node_embeddings]
-            x = torch.cat(x, 0)
-
-            # Generate edges
-            edge_emb_seq  = self.edge_cell.forward_seq(x)
-            edge_emb_seq  = edge_emb_seq[list(range(x.shape[0]))[::-1]]
-            edge_emb_seq  = edge_emb_seq.view(-1, edge_emb_seq.shape[-1])
-            edge_pred_seq = [c(edge_emb_seq) for c in self.edge_classifiers]
-
-            edge_target = bond_y[edge_num:edge_num+len(x)].view(-1, bond_y.shape[-1])
-            edge_loss  += self.calc_edge_loss(edge_pred_seq, edge_target)
-
-            # Reset node lstm state and set context
-            self.node_cell.set_hidden(self.edge_cell.get_hidden())
-            node_embeddings.append(node_emb)
-
-            edge_num += len(x)
-
-            '''
-            if i % 4 == 0:
-                self.node_cell.detach()
-                self.edge_cell.detach()
-                node_embeddings = [emb.detach() for emb in node_embeddings]
-            '''
-
-        recon_loss = node_loss/max_seq_length + edge_loss/edge_num
-
-        return recon_loss

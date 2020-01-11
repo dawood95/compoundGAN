@@ -26,7 +26,7 @@ class Trainer:
         self.seq_len      = np.inf
         self.log_step     = 25
 
-        self.prior_factor   = 1e-3
+        self.prior_factor   = 1
         self.prior_step     = 0
         self.prior_counter  = 0#int(1 / self.prior_step)
         self.recon_thresh   = 0.20
@@ -118,10 +118,10 @@ class Trainer:
             data_loader = self.train_loader
 
         for i, data in enumerate(data_loader):
+
             self.optim.zero_grad()
 
-            data[0].to(self.device)
-            for j in range(1, len(data)):
+            for j in range(len(data)):
                 data[j] = data[j].to(self.device)
 
             losses = self.model(data)
@@ -213,8 +213,7 @@ class Trainer:
 
         for i, data in enumerate(data_loader):
 
-            data[0].to(self.device)
-            for j in range(1, len(data)):
+            for j in range(len(data)):
                 data[j] = data[j].to(self.device)
 
             losses = self.model(data)

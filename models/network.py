@@ -4,8 +4,7 @@ from torch import nn
 from math import pi, log
 
 from .encoder import Encoder
-from .transformer_decoder import Decoder
-#from .decoder import Decoder
+from .decoder import Decoder
 
 from .cnf.ode import ODEnet, ODEfunc
 from .cnf.cnf import CNF
@@ -16,18 +15,20 @@ class CVAEF(nn.Module):
     '''
     Compound VAE Flow
     '''
-    def __init__(self, node_dims, edge_dims, latent_dim=256,
+    def __init__(self, input_dims, latent_dim=256,
                  cnf_hidden_dims=[256,], cnf_context_dim=0,
                  cnf_T=1.0, cnf_train_T=False,
                  solver='dopri5', atol=1e-5, rtol=1e-5, use_adjoint=True,
-                 num_decoder_layers=4):
+                 num_encoder_layers=4, num_decoder_layers=4):
         super().__init__()
 
-        self.encoder = Encoder(sum(node_dims), sum(edge_dims), latent_dim)
-        self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-                               num_decoder_layers, num_head=8, ff_dim=2048)
-        # self.decoder = Decoder(latent_dim, node_dims, edge_dims,
-        #                        num_decoder_layers)
+        self.encoder = Encoder(sum(input_dims), 128, latent_dim,
+                               num_encoder_layers, num_head=8,
+                               ff_dim=2048, dropout=0.)
+
+        self.decoder = Decoder(latent_dim, input_dims,
+                               num_decoder_layers, num_head=8,
+                               ff_dim=2048, dropout=0.)
 
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)
@@ -53,14 +54,12 @@ class CVAEF(nn.Module):
 
     def forward(self, data):
 
-        G, atom_i, atom_x, atom_y, bond_y, logP = data
+        emb, emb_mask, logP, token_x, token_y = data
 
-        mu, logvar = self.encoder(G)
+        mu, logvar = self.encoder(emb, emb_mask)
         z = self.reparameterize(mu, logvar)
 
-        reconstruction_loss = self.decoder(z,
-                                           atom_i, atom_x,
-                                           atom_y, bond_y)
+        reconstruction_loss = self.decoder(z, token_x, token_y)
 
         # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
 

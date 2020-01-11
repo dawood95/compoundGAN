@@ -13,17 +13,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from models.network import CVAEF
 
-from data.zinc import ZINC250K, ZINC_collate
-from data.qm9 import QM9, QM9_collate
+from data.selfies import SELFIES, collate
 from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
 
-Dataset = QM9
-Dataset_collate = QM9_collate
-
-# Dataset = ZINC250K
-# Dataset_collate = ZINC_collate
+Dataset = SELFIES
+Dataset_collate = collate
 
 parser = argparse.ArgumentParser()
 
@@ -36,9 +32,7 @@ parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--weight-decay', type=float, default=0)
 
-parser.add_argument('--node-dims', type=list, default=[43, 7, 3, 3])
-parser.add_argument('--edge-dims', type=list, default=[5, 2, 4])
-
+parser.add_argument('--input-dims', type=list, default=[95, 3])
 parser.add_argument('--latent-dim', type=int, default=256)
 
 parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256, 256])
@@ -119,7 +113,7 @@ if __name__ == "__main__":
                             drop_last=True)
 
     # Model
-    model = CVAEF(args.node_dims, args.edge_dims, args.latent_dim,
+    model = CVAEF(args.input_dims, args.latent_dim,
                   args.cnf_hidden_dims, args.cnf_context_dim,
                   args.cnf_T, args.cnf_train_T,
                   args.ode_solver, args.ode_atol, args.ode_rtol,

@@ -58,25 +58,6 @@ class Decoder(nn.Module):
         self.hidden_dim     = hidden_dim
         self.one_hot_dims   = node_feats
 
-        sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
-        sin_freq = 1 / (1_000 ** sin_freq)
-
-        cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
-        cos_freq = 1 / (1_000 ** cos_freq)
-
-        x = torch.arange(0, 100) # 100 = max nodes
-
-        sin_emb = torch.sin(torch.einsum('i,d->id', x, sin_freq))
-        cos_emb = torch.cos(torch.einsum('i,d->id', x, cos_freq))
-        sin_emb = sin_emb.unsqueeze(1)
-        cos_emb = cos_emb.unsqueeze(1)
-
-        embedding = torch.zeros(len(x), 1, hidden_dim)
-        embedding[:, :, 0:self.hidden_dim:2] = sin_emb
-        embedding[:, :, 1:self.hidden_dim:2] = cos_emb
-
-        self.pos_emb = embedding
-
         edge_start = []
         edge_end   = []
         for i in range(len(x)):
@@ -120,9 +101,6 @@ class Decoder(nn.Module):
 
         sin_emb = sin_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
 
-
-
-
         cos_emb = cos_emb.unsqueeze(1).repeat_interleave(batch_size, dim=1)
 
         embedding[:, :, 0:self.hidden_dim:2] = sin_emb.clone().detach()
@@ -142,7 +120,7 @@ class Decoder(nn.Module):
         diag = torch.diagonal(mask)
         diag[:] = 0.0
         return mask
-        
+
     def calc_node_loss(self, node_pred, node_target):
         total_node_loss = 0
         for i in range(node_target.shape[-1]):
@@ -155,7 +133,7 @@ class Decoder(nn.Module):
 
         batch_size = z.shape[0]
         seq_length = atom_y.shape[0]
-        
+
         atom_x         = self.node_project(atom_x)
         pos_emb        = self.build_inputs(batch_size, seq_length).to(z)
         decoder_inputs = atom_x + pos_emb
@@ -185,7 +163,7 @@ class Decoder(nn.Module):
             emb = F.one_hot(target, emb_size)
             atom_x.append(emb)
         atom_x = torch.cat(atom_x, -1).float().to(z)
-        
+
         node_emb = self.node_project(atom_x)
         '''
 
@@ -242,7 +220,7 @@ class Decoder(nn.Module):
         for i in range(1, seq_length):
 
             pos_emb_i = pos_emb[i]
-            
+
             start = max(0, i - 12)
             end   = i
 
@@ -258,7 +236,7 @@ class Decoder(nn.Module):
 
             edge_memory_mask.append(memory_mask)
             '''
-            
+
         edge_decoder_emb = torch.cat(edge_decoder_emb, 0)
         # edge_memory_mask = torch.cat(edge_memory_mask, 0).to(z)
 
@@ -285,7 +263,7 @@ class Decoder(nn.Module):
         mem_key_mask = (atom_y[:, :, 0] == -1 | atom_y[:, :, 0] == 42).T
         mem_key_mask = torch.cat([torch.zeros(batch_size, 1).to(mem_key_mask),
                                   mem_key_mask], 1)
-        
+
         edge_emb = self.edge_decoder(
             tgt = edge_decoder_emb,
             memory = edge_memory,
