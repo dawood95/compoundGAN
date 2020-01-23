@@ -13,6 +13,9 @@ class Decoder(nn.Module):
 
         hidden_dim = latent_dim
 
+        self.start_token = torch.zeros((1, sum(output_dims)))
+        self.start_token[:, 0] = 1
+
         self.token_project = nn.Sequential(
             nn.Linear(sum(output_dims), hidden_dim, bias=bias),
             nn.LayerNorm(hidden_dim),
@@ -103,6 +106,65 @@ class Decoder(nn.Module):
             total_loss += loss
 
         return total_loss # / seq_length
+
+    def generate(self, z, max_seq_length=100):
+
+        batch_size = z.shape[0]
+        num_nodes  = -1*torch.ones(batch_size).to(z)
+
+        pos = 0
+
+        token_x = self.start_token.clone().unsqueeze(1)
+        token_x = token_x.repeat_interleave(batch_size, dim=1)
+        pred_tokens = [token_x,]
+
+        token_x = self.token_project(token_x)
+        token_x = token_x + self.get_pos_emb(batch_size, 1, pos).to(z)
+
+        context = [z.unsqueeze(0), ]
+
+        for i in range(max_seq_length):
+
+            if (num_nodes != -1).all(): break
+
+            pos = pos + 1
+
+            token_emb = self.transformer(
+                tgt=token_x,
+                memory=torch.cat(context, 0),
+            )
+
+            token_preds = [c(token_emb) for c in self.classifiers]
+            token_preds = [F.softmax(pred, -1) for pred in token_preds]
+
+            cond1 = token_preds[0][0].argmax(-1) == 1
+            cond2 = num_nodes == -1
+            num_nodes[cond1 & cond2] = i + 1
+
+            context.append(token_x)
+
+            next_token_x = []
+            for j, pred in enumerate(token_preds):
+                emb = F.one_hot(pred.argmax(-1), pred.shape[-1])
+                next_token_x.append(emb)
+            next_token_x = torch.cat(next_token_x, -1)
+
+            token_x = next_token_x.float().to(z)
+            pred_tokens.append(token_x)
+
+            token_x = self.token_project(token_x)
+            token_x = token_x + self.get_pos_emb(batch_size, 1, pos).to(z)
+
+        num_nodes[num_nodes == -1] = i
+
+        pred_tokens = torch.cat(pred_tokens, 0)
+        return pred_tokens
+
+
+
+
+
+
 
 
 

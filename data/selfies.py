@@ -34,17 +34,17 @@ SELFIE_VOCAB = [
     '[C]', '[=C]', '[#C]',
     '[C@expl]', '[C@@expl]', '[C@Hexpl]', '[C@@Hexpl]',
     '[CH-expl]', '[CH2-expl]',
-    '[c]', '[-c]', '[=c]',
+    # '[c]', '[-c]', '[=c]',
 
-    '[O]', '[=O]',  '[O-expl]',  '[O+expl]', '[=OH+expl]',
-    '[o]', '[o+expl]',
+    '[O]', '[=O]',  '[O-expl]',  '[O+expl]', '[=O+expl]', '[=OH+expl]',
+    # '[o]', '[o+expl]',
 
     '[N]', '[N+expl]', '[N-expl]', '[NH+expl]', '[NH-expl]',
     '[NH2+expl]', '[NH3+expl]', '[NHexpl]',
     '[=N]', '[=N+expl]', '[=N-expl]', '[=NH+expl]', '[=NH2+expl]',
     '[#N]', '[#N+expl]',
-    '[n]', '[n-expl]', '[n+expl]', '[nH+expl]', '[nHexpl]',
-    '[-n]', '[-n+expl]', '[=n+expl]',
+    # '[n]', '[n-expl]', '[n+expl]', '[nH+expl]', '[nHexpl]',
+    # '[-n]', '[-n+expl]', '[=n+expl]',
 
     '[P]', '[=P]', '[P+expl]', '[P@@Hexpl]', '[P@@expl]', '[P@expl]',
     '[PH+expl]', '[PHexpl]',
@@ -52,7 +52,7 @@ SELFIE_VOCAB = [
 
     '[S]', '[S+expl]', '[S-expl]', '[S@@+expl]', '[S@@expl]', '[S@expl]',
     '[=S]', '[=S+expl]', '[=S@@expl]', '[=S@expl]', '[=SH+expl]',
-    '[s]', '[s+expl]',
+    # '[s]', '[s+expl]',
 
     '[H]', '[F]', '[I]', '[Br]', '[Cl]', '[epsilon]'
 
@@ -80,6 +80,10 @@ class SELFIES(data.Dataset):
 
         smiles   = self.data[idx]
         molecule = Chem.MolFromSmiles(smiles)
+        logP     = Descriptors.MolLogP(molecule)
+        
+        Chem.Kekulize(molecule)
+        smiles   = Chem.MolToSmiles(molecule, kekuleSmiles=True)
 
         selfies  = selfie_encoder(smiles)
         selfies  = '[START]' + selfies + '[END]'
@@ -107,7 +111,6 @@ class SELFIES(data.Dataset):
         stereo_data = F.one_hot(stereo_tensor, 3)
 
         emb  = torch.cat([selfie_data, stereo_data], -1)
-        logP = Descriptors.MolLogP(molecule)
 
         return emb[1:-1], logP, emb[:-1], selfie_tensor[1:], stereo_tensor[1:]
 

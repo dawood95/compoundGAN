@@ -23,12 +23,12 @@ class CVAEF(nn.Module):
         super().__init__()
 
         self.encoder = Encoder(sum(input_dims), 128, latent_dim,
-                               num_encoder_layers, num_head=8,
-                               ff_dim=2048, dropout=0.)
+                               num_encoder_layers, num_head=4,
+                               ff_dim=1024, dropout=0.1)
 
         self.decoder = Decoder(latent_dim, input_dims,
-                               num_decoder_layers, num_head=8,
-                               ff_dim=2048, dropout=0.)
+                               num_decoder_layers, num_head=4,
+                               ff_dim=1024, dropout=0.1)
 
         diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
         odefunc  = ODEfunc(diffeq)

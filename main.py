@@ -32,12 +32,12 @@ parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--weight-decay', type=float, default=0)
 
-parser.add_argument('--input-dims', type=list, default=[95, 3])
+parser.add_argument('--input-dims', type=list, default=[81, 3])
 parser.add_argument('--latent-dim', type=int, default=256)
 
 parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256, 256])
 parser.add_argument('--cnf-context-dim', type=int, default=1)
-parser.add_argument('--cnf-T', type=float, default=0.9)
+parser.add_argument('--cnf-T', type=float, default=1.0)
 parser.add_argument('--cnf-train-T', type=eval, default=True)
 
 parser.add_argument('--ode-solver', type=str, default='dopri5')
@@ -52,7 +52,7 @@ parser.add_argument('--cuda', action='store_true', default=False)
 parser.add_argument('--track', action='store_true', default=False)
 parser.add_argument('--comment', type=str, default='')
 
-parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--global-rank', type=int)
 
 # for torch distributed launch
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     train_dataset = dataset
     val_dataset   = deepcopy(dataset)
-    split_len     = int(len(train_dataset)*0.5)
+    split_len     = int(len(train_dataset)*0.7)
     train_dataset.data = train_dataset.data[:split_len]
     val_dataset.data   = val_dataset.data[split_len:]
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
                   args.cnf_hidden_dims, args.cnf_context_dim,
                   args.cnf_T, args.cnf_train_T,
                   args.ode_solver, args.ode_atol, args.ode_rtol,
-                  args.ode_use_adjoint, args.decoder_num_layers)
+                  args.ode_use_adjoint, args.decoder_num_layers, args.decoder_num_layers)
 
     if args.pretrained:
         state_dict = torch.load(args.pretrained, map_location='cpu')
