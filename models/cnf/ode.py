@@ -34,7 +34,7 @@ class ODEnet(nn.Module):
     Helper class to make neural nets for use in continuous normalizing flows
     size: latent --> hidden --> latent
     """
-    def __init__(self, latent_dim, hidden_dims, context_dim):
+    def __init__(self, latent_dim, hidden_dims):
         super(ODEnet, self).__init__()
 
         base_layer   = diffeq_layers.ConcatSquashLinear
@@ -45,14 +45,14 @@ class ODEnet(nn.Module):
         in_dim = latent_dim
         for dim in hidden_dims:
             layer = nn.Sequential(
-                base_layer(in_dim, dim, context_dim),
+                base_layer(in_dim, dim),
                 nonlinearity(),
             )
             layers.append(layer)
             in_dim = dim
 
         layers.append(nn.Sequential(
-            base_layer(in_dim, latent_dim, context_dim),
+            base_layer(in_dim, latent_dim),
         ))
 
         self.layers = layers
@@ -77,7 +77,6 @@ class ODEfunc(nn.Module):
 
     def forward(self, t, states):
         y = states[0]
-        c = states[2]
         t = torch.ones(y.size(0), 1).to(y) * t
 
         # is the clone detach required ?
@@ -85,7 +84,6 @@ class ODEfunc(nn.Module):
         # .clone().detach().requires_grad_(True).type_as(y)
 
         # just to be sure
-        c.requires_grad_(True)
         t.requires_grad_(True)
         y.requires_grad_(True)
 
@@ -97,11 +95,8 @@ class ODEfunc(nn.Module):
 
         # I guess need to set this for inference ?
         with torch.set_grad_enabled(True):
-            if len(c) > 0:
-                context = torch.cat([t, c], -1)
-            else:
-                context = t
+            context = t
             dy = self.diffeq(y, context)
             divergence = self.divergence_fn(dy, y, self.e).view(-1, 1)
 
-        return dy, -divergence, torch.zeros_like(c).requires_grad_(True)
+        return dy, -divergence

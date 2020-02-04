@@ -1,7 +1,9 @@
 import torch
 import numpy as np
-from torch import nn
+
 from math import pi, log
+from torch import nn
+from torch.nn import functional as F
 
 from .encoder import Encoder
 from .decoder import Decoder
@@ -16,7 +18,7 @@ class CVAEF(nn.Module):
     Compound VAE Flow
     '''
     def __init__(self, input_dims, latent_dim=256,
-                 cnf_hidden_dims=[256,], cnf_context_dim=0,
+                 cnf_hidden_dims=[256,], cnf_condition_dim=0,
                  cnf_T=1.0, cnf_train_T=False,
                  solver='dopri5', atol=1e-5, rtol=1e-5, use_adjoint=True,
                  num_encoder_layers=4, num_decoder_layers=4):
@@ -30,11 +32,15 @@ class CVAEF(nn.Module):
                                num_decoder_layers, num_head=4,
                                ff_dim=1024, dropout=0.1)
 
-        diffeq   = ODEnet(latent_dim, cnf_hidden_dims, cnf_context_dim)
+        diffeq   = ODEnet(latent_dim, cnf_hidden_dims)
         odefunc  = ODEfunc(diffeq)
         self.cnf = CNF(odefunc, cnf_T, cnf_train_T,
                        solver, atol, rtol, use_adjoint)
 
+        self.condition_dim = cnf_condition_dim
+
+        return
+    
     @staticmethod
     def gaussian_entropy(logvar):
         const = 0.5 * float(logvar.size(-1)) * (1. + np.log(np.pi * 2))
@@ -54,7 +60,7 @@ class CVAEF(nn.Module):
 
     def forward(self, data):
 
-        emb, emb_mask, logP, token_x, token_y = data
+        emb, emb_mask, token_x, token_y, condition_y = data
 
         mu, logvar = self.encoder(emb, emb_mask)
         z = self.reparameterize(mu, logvar)
@@ -68,11 +74,13 @@ class CVAEF(nn.Module):
 
         # return reconstruction_loss, entropy_loss, torch.Tensor([0.,])
 
-        w, delta_log_pw = self.cnf(z, logP)
+        w, delta_log_pw = self.cnf(z)
+        w, condition_x = w[:, :-self.condition_dim], w[:, -self.condition_dim:]
+        
         log_pw = self.stdnormal_logprob(w).sum(-1, keepdim=True)
         log_pz = log_pw - delta_log_pw
-        prior_loss = -log_pz.mean()
-
+        prior_loss = -log_pz.mean() + F.mse_loss(condition_x, condition_y)*1e3
+        
         # return torch.Tensor([0.,]), entropy_loss, prior_loss
 
         return reconstruction_loss, entropy_loss, prior_loss

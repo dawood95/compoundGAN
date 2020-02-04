@@ -26,7 +26,7 @@ class Trainer:
         self.seq_len      = np.inf
         self.log_step     = 25
 
-        self.prior_factor   = 1e-3
+        self.prior_factor   = 1e-2
         self.prior_step     = 0
         self.prior_counter  = 0#int(1 / self.prior_step)
         self.recon_thresh   = 0.20
@@ -90,8 +90,9 @@ class Trainer:
                 self.recon_thresh = min(self.recon_thresh, 0.40)
             '''
 
-            self.prior_factor = self.prior_factor * 1.1
-            self.prior_factor = min(1.0, self.prior_factor)
+            if self.epoch > 200:
+                self.prior_factor = self.prior_factor * 1.01
+                self.prior_factor = min(1e-2, self.prior_factor)
             
             '''
             if (train_recon_loss < self.recon_thresh) and (self.seq_len > 50):

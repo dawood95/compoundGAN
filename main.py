@@ -13,13 +13,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from models.network import CVAEF
 
-from data.selfies import SELFIES, collate
+from data.zinc import ZINC250K
+from data.selfies import SELFIES
 from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
-
-Dataset = SELFIES
-Dataset_collate = collate
 
 parser = argparse.ArgumentParser()
 
@@ -36,7 +34,7 @@ parser.add_argument('--input-dims', type=list, default=[81, 3])
 parser.add_argument('--latent-dim', type=int, default=256)
 
 parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256, 256])
-parser.add_argument('--cnf-context-dim', type=int, default=1)
+parser.add_argument('--cnf-train-context', action='store_true', default=True)
 parser.add_argument('--cnf-T', type=float, default=1.0)
 parser.add_argument('--cnf-train-T', type=eval, default=True)
 
@@ -62,6 +60,11 @@ torch.set_flush_denormal(True)
 
 if __name__ == "__main__":
     args = parser.parse_args()
+
+    if 'zinc' in str(args.data_file).lower():
+        Dataset = ZINC250K
+    else:
+        Dataset = SELFIES
 
     PROJECT_NAME = 'compound-gan'
 
@@ -98,7 +101,7 @@ if __name__ == "__main__":
                               batch_size=args.batch_size,
                               shuffle=False,
                               num_workers=args.num_workers,
-                              collate_fn=Dataset_collate,
+                              collate_fn=Dataset.collate,
                               sampler=train_sampler,
                               pin_memory=args.cuda,
                               drop_last=True)
@@ -107,14 +110,15 @@ if __name__ == "__main__":
                             batch_size=args.batch_size,
                             shuffle=False,
                             num_workers=args.num_workers,
-                            collate_fn=Dataset_collate,
+                            collate_fn=Dataset.collate,
                             sampler=val_sampler,
                             pin_memory=args.cuda,
                             drop_last=True)
 
     # Model
+    condition_dim = dataset.condition_dim if args.cnf_train_context else 0
     model = CVAEF(args.input_dims, args.latent_dim,
-                  args.cnf_hidden_dims, args.cnf_context_dim,
+                  args.cnf_hidden_dims, condition_dim,
                   args.cnf_T, args.cnf_train_T,
                   args.ode_solver, args.ode_atol, args.ode_rtol,
                   args.ode_use_adjoint, args.decoder_num_layers, args.decoder_num_layers)

@@ -24,7 +24,7 @@ class CNF(nn.Module):
         self.rtol    = rtol
 
 
-    def forward(self, x, context=None, integration_times=None, reverse=False):
+    def forward(self, x, integration_times=None, reverse=False):
 
         if integration_times is None:
             if self.train_T:
@@ -41,9 +41,6 @@ class CNF(nn.Module):
 
         integration_times = integration_times.to(x)
 
-        if context is None:
-            context = torch.zeros(0).to(x)
-
         _logpx = torch.zeros((x.shape[0], 1)).to(x)
 
         # Refresh the odefunc statistics.
@@ -51,7 +48,7 @@ class CNF(nn.Module):
 
         state_t = self.odeint(
             self.odefunc,
-            (x, _logpx, context),
+            (x, _logpx),
             integration_times,
             atol=self.atol,
             rtol=self.rtol,
@@ -59,7 +56,7 @@ class CNF(nn.Module):
         )
 
         state_t = (s[-1] for s in state_t)
-        z_t, logpz_t, _ = state_t
+        z_t, logpz_t = state_t
 
         return z_t, logpz_t
 

@@ -64,24 +64,29 @@ class SELFIES(data.Dataset):
         super().__init__()
 
         # Read data file
-        data = Path(data_file).as_posix()
-        data = pd.read_csv(data)
-        data = data['smiles']
-        data = [x.strip() for x in data]
-
-        # Shuffle data
-        random.shuffle(data)
-
-        #
-        self.data = data
-        return
-
-    def __getitem__(self, idx):
-
-        smiles   = self.data[idx]
-        molecule = Chem.MolFromSmiles(smiles)
-        logP     = Descriptors.MolLogP(molecule)
+        df = Path(data_file).as_posix()
+        df = pd.read_csv(df)
         
+        self.df   = df
+        self.data = self.get_data_from_dataframe()
+
+        self.condition_dim = 1
+        
+        return
+        
+    def get_data_from_dataframe(self):
+        
+        smiles = self.df['smiles']
+        smiles = [x.strip() for x in smiles]
+
+        # Shuffle smiles
+        random.shuffle(smiles)
+        
+        return smiles
+
+    @staticmethod
+    def get_selfies_from_smiles(smiles, returnMol=False):
+        molecule = Chem.MolFromSmiles(smiles)
         Chem.Kekulize(molecule)
         smiles   = Chem.MolToSmiles(molecule, kekuleSmiles=True)
 
@@ -92,7 +97,6 @@ class SELFIES(data.Dataset):
 
         stereo_idx = []
         selfie_idx = []
-
         for token in selfies:
             if '\\' in token:
                 stereo_idx.append(1)
@@ -111,40 +115,55 @@ class SELFIES(data.Dataset):
         stereo_data = F.one_hot(stereo_tensor, 3)
 
         emb  = torch.cat([selfie_data, stereo_data], -1)
+        
+        if returnMol:
+            return emb, selfie_tensor, stereo_tensor, molecule
+        
+        return emb, selfie_tensor, stereo_tensor
+    
+    def __getitem__(self, idx):
 
-        return emb[1:-1], logP, emb[:-1], selfie_tensor[1:], stereo_tensor[1:]
+        smiles    = self.data[idx]
+        data_item = self.get_selfies_from_smiles(smiles, True)
+
+        emb, selfie_tensor, stereo_tensor, molecule = data_item        
+        logP = Descriptors.MolLogP(molecule)
+        logP = torch.Tensor([logP])
+        
+        return emb[1:-1], emb[:-1], selfie_tensor[1:], stereo_tensor[1:], logP
 
     def __len__(self):
         return len(self.data)
 
+    @staticmethod
+    def collate(x):
+        batch_size = len(x)
 
-def collate(x):
-    batch_size = len(x)
+        embeddings, token_x, selfie_y, stereo_y, condition = map(list, zip(*x))
 
-    embeddings, logP, token_x, selfie_y, stereo_y = map(list, zip(*x))
+        max_seq_len = max(embeddings, key=len).shape[0]
 
-    max_seq_len = max(embeddings, key=len).shape[0]
+        batch_emb_shape = (max_seq_len, batch_size, embeddings[-1].shape[-1])
+        batch_emb       = torch.zeros(batch_emb_shape, dtype=torch.float)
+        batch_emb_mask  = torch.zeros(batch_emb_shape[:-1], dtype=torch.bool)
+        for b, emb in enumerate(embeddings):
+            batch_emb[:emb.shape[0], b] = emb
+            batch_emb_mask[:emb.shape[0], b] = True
 
-    batch_emb_shape = (max_seq_len, batch_size, embeddings[-1].shape[-1])
-    batch_emb       = torch.zeros(batch_emb_shape, dtype=torch.float)
-    batch_emb_mask  = torch.zeros(batch_emb_shape[:-1], dtype=torch.bool)
-    for b, emb in enumerate(embeddings):
-        batch_emb[:emb.shape[0], b] = emb
-        batch_emb_mask[:emb.shape[0], b] = True
+        max_seq_len = max(token_x, key=len).shape[0]
 
-    max_seq_len = max(token_x, key=len).shape[0]
+        batch_token_shape = (max_seq_len, batch_size, token_x[-1].shape[-1])
+        batch_token_x     = torch.zeros(batch_token_shape, dtype=torch.float)
+        for b, token in enumerate(token_x):
+            batch_token_x[:token.shape[0], b] = token
 
-    batch_token_shape = (max_seq_len, batch_size, token_x[-1].shape[-1])
-    batch_token_x     = torch.zeros(batch_token_shape, dtype=torch.float)
-    for b, token in enumerate(token_x):
-        batch_token_x[:token.shape[0], b] = token
+        batch_token_y = -torch.ones((max_seq_len, batch_size, 2)).long()
+        for b in range(batch_size):
+            batch_token_y[:selfie_y[b].shape[0], b, 0] = selfie_y[b]
+            batch_token_y[:selfie_y[b].shape[0], b, 1] = stereo_y[b]
 
-    batch_token_y = -torch.ones((max_seq_len, batch_size, 2)).long()
-    for b in range(batch_size):
-        batch_token_y[:selfie_y[b].shape[0], b, 0] = selfie_y[b]
-        batch_token_y[:selfie_y[b].shape[0], b, 1] = stereo_y[b]
+        condition = [x.unsqueeze(0) for x in condition]
+        batch_condition = torch.cat(condition, 0).float()
 
-    batch_logP = torch.Tensor(logP).float().unsqueeze(-1)
-
-    return batch_emb, batch_emb_mask, batch_logP, \
-           batch_token_x, batch_token_y
+        return batch_emb, batch_emb_mask, batch_token_x, batch_token_y, \
+            batch_condition
