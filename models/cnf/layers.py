@@ -22,11 +22,11 @@ class Lambda(nn.Module):
         return self.f(x)
 
 class ConcatSquashLinear(nn.Module):
-    def __init__(self, dim_in, dim_out):
+    def __init__(self, dim_in, dim_out, dim_context=0):
         super(ConcatSquashLinear, self).__init__()
         self._layer = nn.Linear(dim_in, dim_out)
-        self._hyper_bias = nn.Linear(1, dim_out, bias=False)
-        self._hyper_gate = nn.Linear(1, dim_out)
+        self._hyper_bias = nn.Linear(1+dim_context, dim_out, bias=False)
+        self._hyper_gate = nn.Linear(1+dim_context, dim_out)
 
     def forward(self, x):
         x, context = x

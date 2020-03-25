@@ -50,7 +50,7 @@ class CVAEF(nn.Module):
     @staticmethod
     def stdnormal_logprob(z):
         log_z = -0.5 * z.size(-1) * log(2 * pi)
-        return log_z - z.pow(2) / 2
+        return log_z - z.pow(2).sum(-1, keepdim=True) / 2
 
     @staticmethod
     def reparameterize(mu, logvar):
@@ -67,20 +67,20 @@ class CVAEF(nn.Module):
 
         reconstruction_loss = self.decoder(z, token_x, token_y)
 
-        # return reconstruction_loss, torch.Tensor([0.,]), torch.Tensor([0.,])
-
         entropy = self.gaussian_entropy(logvar).mean()
         entropy_loss = -entropy
 
-        # return reconstruction_loss, entropy_loss, torch.Tensor([0.,])
-
         w, delta_log_pw = self.cnf(z)
-        w, condition_x = w[:, :-self.condition_dim], w[:, -self.condition_dim:]
-        
-        log_pw = self.stdnormal_logprob(w).sum(-1, keepdim=True)
-        log_pz = log_pw - delta_log_pw
-        prior_loss = -log_pz.mean() + F.mse_loss(condition_x, condition_y)*1e3
-        
-        # return torch.Tensor([0.,]), entropy_loss, prior_loss
 
-        return reconstruction_loss, entropy_loss, prior_loss
+        if self.condition_dim > 0:
+            w, condition_x = w[:, :-self.condition_dim], w[:, -self.condition_dim:]
+            condition_loss = F.mse_loss(condition_x, condition_y, reduction='none')
+            condition_loss = condition_loss.mean(dim=0).sum() 
+        else:
+            condition_loss = torch.zeros(1).to(z)
+            
+        log_pw = self.stdnormal_logprob(w)
+        log_pz = log_pw - delta_log_pw
+        prior_loss = -log_pz.mean()
+        
+        return reconstruction_loss, entropy_loss, prior_loss, condition_loss

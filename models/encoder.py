@@ -25,14 +25,14 @@ class Encoder(nn.Module):
             encoder_layer, num_layers
         )
 
-        self.pool = nn.GRU(hidden_dim, latent_dim, 1, bias)
+        self.pool = nn.GRU(hidden_dim, latent_dim, 2, bias)
 
         sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
-        sin_freq = 1 / (1_000 ** sin_freq)
+        sin_freq = 1 / (10_000 ** sin_freq)
         cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
-        cos_freq = 1 / (1_000 ** cos_freq)
+        cos_freq = 1 / (10_000 ** cos_freq)
 
-        x = torch.arange(0, 500) # 100 = max tokens
+        x = torch.arange(0, 500) # 100 = max 01, 32, 256tokens
 
         sin_emb = torch.sin(torch.einsum('i,d->id', x, sin_freq))
         cos_emb = torch.cos(torch.einsum('i,d->id', x, cos_freq))
@@ -61,8 +61,12 @@ class Encoder(nn.Module):
 
         return embedding
 
-    def forward(self, emb, mask):
+    def forward(self, emb, mask=None):
 
+        if mask is None:
+            mask = torch.zeros((emb.shape[:-1])).to(emb).bool()
+            mask[:] = True
+            
         seq_length, batch_size = mask.shape
 
         # project to match dimensions
@@ -71,7 +75,7 @@ class Encoder(nn.Module):
         pos_emb   = self.get_pos_emb(batch_size, seq_length).to(emb)
         token_emb = token_emb + pos_emb
         enc_emb   = self.transformer(token_emb, None, ~mask.T)
-
+        
         # Pack embeddings to run through GRU-pooling
         packed_emb = rnn.pack_padded_sequence(enc_emb, mask.sum(0),
                                               enforce_sorted=False)

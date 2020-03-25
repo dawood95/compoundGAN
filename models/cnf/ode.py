@@ -34,7 +34,7 @@ class ODEnet(nn.Module):
     Helper class to make neural nets for use in continuous normalizing flows
     size: latent --> hidden --> latent
     """
-    def __init__(self, latent_dim, hidden_dims):
+    def __init__(self, latent_dim, hidden_dims, context_dims=0):
         super(ODEnet, self).__init__()
 
         base_layer   = diffeq_layers.ConcatSquashLinear
@@ -45,14 +45,14 @@ class ODEnet(nn.Module):
         in_dim = latent_dim
         for dim in hidden_dims:
             layer = nn.Sequential(
-                base_layer(in_dim, dim),
+                base_layer(in_dim, dim, context_dims),
                 nonlinearity(),
             )
             layers.append(layer)
             in_dim = dim
 
         layers.append(nn.Sequential(
-            base_layer(in_dim, latent_dim),
+            base_layer(in_dim, latent_dim, context_dims),
         ))
 
         self.layers = layers
@@ -78,7 +78,8 @@ class ODEfunc(nn.Module):
     def forward(self, t, states):
         y = states[0]
         t = torch.ones(y.size(0), 1).to(y) * t
-
+        # c = states[2]
+        
         # is the clone detach required ?
         # Regardless of T being able to be trained
         # .clone().detach().requires_grad_(True).type_as(y)
@@ -86,6 +87,7 @@ class ODEfunc(nn.Module):
         # just to be sure
         t.requires_grad_(True)
         y.requires_grad_(True)
+        # c.requires_grad_(True)
 
         self.num_evals += 1
 

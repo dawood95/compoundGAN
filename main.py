@@ -14,7 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from models.network import CVAEF
 
 from data.zinc import ZINC250K
-from data.selfies import SELFIES
+from data.selfies import SELFIES, SELFIE_VOCAB
 from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
@@ -30,13 +30,15 @@ parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--weight-decay', type=float, default=0)
 
-parser.add_argument('--input-dims', type=list, default=[81, 3])
+parser.add_argument('--input-dims', type=list, default=[len(SELFIE_VOCAB), 3])
 parser.add_argument('--latent-dim', type=int, default=256)
 
 parser.add_argument('--cnf-hidden-dims', type=list, default=[256, 256, 256, 256])
-parser.add_argument('--cnf-train-context', action='store_true', default=True)
+parser.add_argument('--cnf-train-context', action='store_true', default=False)
 parser.add_argument('--cnf-T', type=float, default=1.0)
 parser.add_argument('--cnf-train-T', type=eval, default=True)
+
+parser.add_argument('--alpha', type=float, default=1e-3)
 
 parser.add_argument('--ode-solver', type=str, default='dopri5')
 parser.add_argument('--ode-atol', type=float, default=1e-5)
@@ -61,10 +63,10 @@ torch.set_flush_denormal(True)
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    if 'zinc' in str(args.data_file).lower():
-        Dataset = ZINC250K
-    else:
-        Dataset = SELFIES
+    #if 'zinc' in str(args.data_file).lower():
+    #Dataset = ZINC250K
+    #else:
+    Dataset = SELFIES
 
     PROJECT_NAME = 'compound-gan'
 
@@ -155,6 +157,6 @@ if __name__ == "__main__":
 
     # Trainer
     data_loaders = [train_loader, val_loader]
-    trainer = Trainer(data_loaders, model, optimizer, scheduler, logger, device,
-                      is_master)
+    trainer = Trainer(data_loaders, model, optimizer, scheduler,
+                      logger, args.alpha, device, is_master)
     trainer.run(args.epoch)

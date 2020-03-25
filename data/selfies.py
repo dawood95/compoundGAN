@@ -33,29 +33,57 @@ SELFIE_VOCAB = [
 
     '[C]', '[=C]', '[#C]',
     '[C@expl]', '[C@@expl]', '[C@Hexpl]', '[C@@Hexpl]',
-    '[CH-expl]', '[CH2-expl]',
-    # '[c]', '[-c]', '[=c]',
+    '[C-expl]', '[C+expl]', '[CHexpl]', '[CH-expl]', '[CH+expl]',
+    '[=C-expl]',
+    '[CH2expl]', '[CH2-expl]', '[CH2+expl]',
+    '[#C-expl]',
 
-    '[O]', '[=O]',  '[O-expl]',  '[O+expl]', '[=O+expl]', '[=OH+expl]',
-    # '[o]', '[o+expl]',
+    '[O]', '[Oexpl]', '[O-expl]',  '[O+expl]', '[OH+expl]',
+    '[#O+expl]',
+    '[=O]', '[=O+expl]', '[=OH+expl]',
 
-    '[N]', '[N+expl]', '[N-expl]', '[NH+expl]', '[NH-expl]',
-    '[NH2+expl]', '[NH3+expl]', '[NHexpl]',
+    '[N]', '[Nexpl]', '[N+expl]', '[N-expl]',
+    '[NHexpl]', '[NH+expl]', '[NH-expl]',
+    '[NH2+expl]', '[NH3+expl]', 
     '[=N]', '[=N+expl]', '[=N-expl]', '[=NH+expl]', '[=NH2+expl]',
     '[#N]', '[#N+expl]',
-    # '[n]', '[n-expl]', '[n+expl]', '[nH+expl]', '[nHexpl]',
-    # '[-n]', '[-n+expl]', '[=n+expl]',
 
-    '[P]', '[=P]', '[P+expl]', '[P@@Hexpl]', '[P@@expl]', '[P@expl]',
-    '[PH+expl]', '[PHexpl]',
-    '[=P@@expl]', '[=P@expl]', '[=PH2expl]',
+    '[P]', '[=P]', '[P-expl]', '[P+expl]',
+    '[P@@Hexpl]', '[P@@expl]', '[P@expl]',
+    '[PHexpl]', '[PH+expl]', '[PH2+expl]', 
+    '[=P@@expl]', '[=P@expl]', '[=PHexpl]', '[=PH2expl]',
 
-    '[S]', '[S+expl]', '[S-expl]', '[S@@+expl]', '[S@@expl]', '[S@expl]',
-    '[=S]', '[=S+expl]', '[=S@@expl]', '[=S@expl]', '[=SH+expl]',
-    # '[s]', '[s+expl]',
+    '[S]', '[S+expl]', '[S-expl]',
+    '[SHexpl]', '[SH+expl]', '[SH-expl]',
+    '[S@@+expl]', '[S@@expl]', '[S@expl]',
+    '[#S]',
+    '[=S]', '[=S+expl]', '[=SHexpl]', '[=SH+expl]',
+    '[=S@@expl]', '[=S@expl]', 
 
-    '[H]', '[F]', '[I]', '[Br]', '[Cl]', '[epsilon]'
+    '[H]',
+    '[F]', '[F-expl]', '[F+expl]',
 
+    '[I]',
+    '[I-expl]', '[I+expl]', '[I+2expl]', '[I+3expl]',
+    '[IH2expl]',
+    '[=I]', '[=IH2expl]',
+    
+    '[Br]', '[Br-expl]', '[Br+expl]', '[Br+2expl]', '[Br+3expl]',
+    '[Cl]', '[Cl-expl]', '[Cl+expl]', '[Cl+2expl]','[Cl+3expl]',
+
+    '[B]', '[Bexpl]', '[B-expl]',
+    '[BH-expl]', '[BH2-expl]', '[BH3-expl]',
+    '[=B]', '[=B-expl]',
+    
+    '[Seexpl]', '[Se-expl]', '[Se+expl]',
+    '[SeHexpl]', '[SeH2expl]',
+    '[=Seexpl]', '[=Se+expl]',
+
+    '[Siexpl]', '[Si-expl]',
+    '[SiHexpl]', '[SiH-expl]', '[SiH2expl]',
+    '[=Siexpl]',
+
+    '[epsilon]',
 ]
 
 class SELFIES(data.Dataset):
@@ -70,7 +98,7 @@ class SELFIES(data.Dataset):
         self.df   = df
         self.data = self.get_data_from_dataframe()
 
-        self.condition_dim = 1
+        self.condition_dim = 2
         
         return
         
@@ -127,10 +155,16 @@ class SELFIES(data.Dataset):
         data_item = self.get_selfies_from_smiles(smiles, True)
 
         emb, selfie_tensor, stereo_tensor, molecule = data_item        
+
+        # Get conditions and normalize in the 0 to 1 range
         logP = Descriptors.MolLogP(molecule)
-        logP = torch.Tensor([logP])
-        
-        return emb[1:-1], emb[:-1], selfie_tensor[1:], stereo_tensor[1:], logP
+        tpsa = Descriptors.TPSA(molecule, includeSandP=True) / 10.0
+
+        condition = torch.Tensor([logP, tpsa])
+                
+        return emb[1:-1], emb[:-1], \
+            selfie_tensor[1:], stereo_tensor[1:], \
+            condition
 
     def __len__(self):
         return len(self.data)

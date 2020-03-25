@@ -14,8 +14,8 @@ class Decoder(nn.Module):
         hidden_dim = latent_dim
 
         self.start_token = torch.zeros((1, sum(output_dims)))
-        self.start_token[:, 0] = 1
-
+        self.start_token[:, [0, -3]] = 1
+        
         self.token_project = nn.Sequential(
             nn.Linear(sum(output_dims), hidden_dim, bias=bias),
             nn.LayerNorm(hidden_dim),
@@ -36,9 +36,9 @@ class Decoder(nn.Module):
         ])
 
         sin_freq = torch.arange(0, hidden_dim, 2.0) / (hidden_dim)
-        sin_freq = 1 / (1_000 ** sin_freq)
+        sin_freq = 1 / (10_000 ** sin_freq)
         cos_freq = torch.arange(1, hidden_dim, 2.0) / (hidden_dim)
-        cos_freq = 1 / (1_000 ** cos_freq)
+        cos_freq = 1 / (10_000 ** cos_freq)
 
         x = torch.arange(0, 500) # 100 = max tokens
 
@@ -85,14 +85,16 @@ class Decoder(nn.Module):
         diagonal_mask = self.generate_diagonal_mask(seq_length).to(z)
         square_mask   = self.generate_square_mask(seq_length).to(z)
 
-        context = torch.cat([z.unsqueeze(0), token_x[:-1]], 0)
+        # context = torch.cat([z.unsqueeze(0), token_x[:-1]], 0)
+        context = z.unsqueeze(0)
 
         token_emb = self.transformer(
             tgt = token_x,
             memory = context,
-            tgt_mask = diagonal_mask,
-            memory_mask = square_mask
-            # tgt_key_padding_mask = (token_y[:, :, 0] == -1).T
+            # tgt_mask = diagonal_mask,
+            # memory_mask = square_mask
+            tgt_mask = square_mask,
+            tgt_key_padding_mask = (token_y[:, :, 0] == -1).T
         )
 
         token_preds = [c(token_emb) for c in self.classifiers]
@@ -107,8 +109,11 @@ class Decoder(nn.Module):
 
         return total_loss # / seq_length
 
+    @torch.no_grad()
     def generate(self, z, max_seq_length=100):
 
+        square_mask = self.generate_square_mask(max_seq_length).to(z)
+        
         batch_size = z.shape[0]
         num_nodes  = -1*torch.ones(batch_size).to(z)
 
@@ -116,23 +121,27 @@ class Decoder(nn.Module):
 
         token_x = self.start_token.clone().unsqueeze(1)
         token_x = token_x.repeat_interleave(batch_size, dim=1)
+        token_x = token_x.to(z)
+        
         pred_tokens = [token_x,]
 
         token_x = self.token_project(token_x)
         token_x = token_x + self.get_pos_emb(batch_size, 1, pos).to(z)
 
-        context = [z.unsqueeze(0), ]
+        context    = z.unsqueeze(0)
+        inp_tokens = token_x
 
         for i in range(max_seq_length):
-
+            
             if (num_nodes != -1).all(): break
 
             pos = pos + 1
 
             token_emb = self.transformer(
-                tgt=token_x,
-                memory=torch.cat(context, 0),
-            )
+                tgt=inp_tokens,
+                memory=context,
+                tgt_mask = square_mask[:len(inp_tokens), :len(inp_tokens)]
+            )[-1:]
 
             token_preds = [c(token_emb) for c in self.classifiers]
             token_preds = [F.softmax(pred, -1) for pred in token_preds]
@@ -141,7 +150,7 @@ class Decoder(nn.Module):
             cond2 = num_nodes == -1
             num_nodes[cond1 & cond2] = i + 1
 
-            context.append(token_x)
+            # context.append(token_x)
 
             next_token_x = []
             for j, pred in enumerate(token_preds):
@@ -155,11 +164,12 @@ class Decoder(nn.Module):
             token_x = self.token_project(token_x)
             token_x = token_x + self.get_pos_emb(batch_size, 1, pos).to(z)
 
-        num_nodes[num_nodes == -1] = i
+            inp_tokens = torch.cat([inp_tokens, token_x], dim=0)
+            
+        num_nodes[num_nodes == -1] = i+1
 
         pred_tokens = torch.cat(pred_tokens, 0)
         return pred_tokens
-
 
 
 

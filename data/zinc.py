@@ -29,6 +29,6 @@ class ZINC250K(SELFIES):
         data_item = self.get_selfies_from_smiles(smiles)
 
         emb, selfie_tensor, stereo_tensor = data_item
-        condition = torch.Tensor([logP, qed, sas])
+        condition = torch.Tensor([logP, qed * 10, sas])
 
         return emb[1:-1], emb[:-1], selfie_tensor[1:], stereo_tensor[1:], condition
