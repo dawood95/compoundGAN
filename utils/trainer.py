@@ -78,28 +78,6 @@ class Trainer:
             # Increment epoch
             self.epoch += 1
 
-            '''
-            if train_recon_loss <= self.recon_thresh:
-                #self.seq_len = self.seq_len + 4
-                #self.recon_thresh += 0.02
-                #self.seq_len = min(64, self.seq_len)
-                #self.recon_thresh = min(self.recon_thresh, 0.40)
-                self.prior_factor = self.prior_factor + 1e-4
-            '''
-            
-            '''
-            if self.epoch > 200:
-                self.prior_factor = self.prior_factor * 1.01
-                self.prior_factor = min(1e-1, self.prior_factor)
-            '''
-            
-            '''
-            if (train_recon_loss < self.recon_thresh) and (self.seq_len > 50):
-                self.prior_factor = self.prior_factor + 0.001
-                self.prior_factor = min(1e-2, self.prior_factor)
-                self.write('New prior factor = %1.4f'%(self.prior_factor))
-            '''
-
 
     def save(self, **kwargs):
         data = {
@@ -176,17 +154,6 @@ class Trainer:
                      recon_loss, entropy_loss, prior_loss, cond_loss,
                      self.model.module.cnf.num_evals())
                 )
-
-                '''
-                self.prior_factor += self.prior_step
-                self.prior_factor = min(self.prior_factor, 1.0)
-                if self.prior_factor >= 1.0:
-                    self.prior_counter -= 1
-
-                if self.prior_factor == 1.0 and self.prior_counter == 0:
-                    self.prior_factor = 0
-                    self.prior_counter = int(1 / self.prior_step)
-                '''
 
             del data, loss
 

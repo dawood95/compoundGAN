@@ -13,8 +13,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from models.network import CVAEF
 
-from data.zinc import ZINC250K
+# from data.homolumo import HOMOLUMO
 from data.selfies import SELFIES, SELFIE_VOCAB
+
 from utils.trainer import Trainer
 from utils.radam import RAdam
 from utils.logger import Logger
@@ -63,9 +64,6 @@ torch.set_flush_denormal(True)
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    #if 'zinc' in str(args.data_file).lower():
-    #Dataset = ZINC250K
-    #else:
     Dataset = SELFIES
 
     PROJECT_NAME = 'compound-gan'
@@ -126,8 +124,27 @@ if __name__ == "__main__":
                   args.ode_use_adjoint, args.decoder_num_layers, args.decoder_num_layers)
 
     if args.pretrained:
-        state_dict = torch.load(args.pretrained, map_location='cpu')
-        model.load_state_dict(state_dict['parameters'])
+        state_dict = torch.load(args.pretrained, map_location='cpu')['parameters']
+        encoder_state_dict = {}
+        for k in state_dict:
+            if 'encoder' in k:
+                encoder_state_dict[k.replace('encoder.', '')] = state_dict[k]
+        model.encoder.load_state_dict(encoder_state_dict)
+
+        decoder_state_dict = {}
+        for k in state_dict:
+            if 'decoder' in k:
+                decoder_state_dict[k.replace('decoder.', '')] = state_dict[k]
+        model.decoder.load_state_dict(decoder_state_dict)
+
+        cnf_state_dict = {}
+        for k in state_dict:
+            if 'cnf' in k:
+                cnf_state_dict[k.replace('cnf.', '')] = state_dict[k]
+        try:
+            model.cnf.load_state_dict(cnf_state_dict)
+        except Exception as E:
+            print("couldn't load cnf state dict ", E)
 
     # CUDA
     device = torch.device('cpu')

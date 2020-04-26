@@ -1,3 +1,6 @@
+import os
+import sys
+
 import torch
 import random
 import pandas as pd
@@ -8,9 +11,13 @@ from pathlib import Path
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem import RDConfig
 from rdkit.Chem import Descriptors
-from torch.utils import data
 
+sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
+import sascorer
+
+from torch.utils import data
 from torch.nn import functional as F
 
 from selfies import encoder as selfie_encoder
@@ -160,7 +167,9 @@ class SELFIES(data.Dataset):
         logP = Descriptors.MolLogP(molecule)
         tpsa = Descriptors.TPSA(molecule, includeSandP=True) / 10.0
 
-        condition = torch.Tensor([logP, tpsa])
+        sa_score = sascorer.calculateScore(molecule)
+        
+        condition = torch.Tensor([tpsa, sa_score,])
                 
         return emb[1:-1], emb[:-1], \
             selfie_tensor[1:], stereo_tensor[1:], \
