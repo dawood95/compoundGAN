@@ -105,7 +105,7 @@ class SELFIES(data.Dataset):
         self.df   = df
         self.data = self.get_data_from_dataframe()
 
-        self.condition_dim = 2
+        self.condition_dim = 1
         
         return
         
@@ -169,7 +169,7 @@ class SELFIES(data.Dataset):
 
         sa_score = sascorer.calculateScore(molecule)
         
-        condition = torch.Tensor([tpsa, sa_score,])
+        condition = torch.Tensor([sa_score,])
                 
         return emb[1:-1], emb[:-1], \
             selfie_tensor[1:], stereo_tensor[1:], \
