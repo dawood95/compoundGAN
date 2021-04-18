@@ -57,7 +57,7 @@ parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--global-rank', type=int)
 
 # for torch distributed launch
-parser.add_argument('--local_rank', type=int)
+parser.add_argument('--local-rank', type=int)
 
 torch.set_flush_denormal(True)
 

@@ -102,3 +102,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# datastat
+zinc_datastat
+chembl_datastat

@@ -21,7 +21,7 @@ from torch.utils import data
 from torch.nn import functional as F
 
 from selfies import encoder as selfie_encoder
-from selfies import selfies_alphabet
+#from selfies import selfies_alphabet
 
 SELFIES_STEREO = ['', '\\', '/']
 

@@ -2,15 +2,11 @@ import os
 import sys
 import argparse
 import torch
-import matplotlib
-import numpy as np
-import pandas as pd
 
 from tqdm import tqdm
 from collections import defaultdict
 from multiprocessing import Pool
 from matplotlib import pyplot as plt
-matplotlib.use("Agg")
 plt.style.use('ggplot')
 
 from rdkit import Chem
@@ -139,7 +135,6 @@ dataset = SELFIES(args.data_file)
 try:
     data_stats = torch.load(args.datastat_file)
 except:
-    print("Except Triggered")
     data_stats = []
     with Pool(args.nproc) as pool:
         it = pool.imap_unordered(calc_data_stats, dataset.data)
@@ -238,9 +233,7 @@ for d in data_stats:
 if args.logp:
     plt.figure()
     joypy.joyplot(logp_map, fade=True, x_range=(-8, 8))
-    plt.savefig(args.eval_name+'_logp.svg', format="svg")
-    
-    pd.DataFrame.from_dict(data=logp_map, orient='index').to_csv(args.eval_name+"_logp.csv", header=False)
+    plt.savefig(args.eval_name+'_logp.png')
 
     x = []
     for k, v in logp_map.items():
@@ -253,9 +246,7 @@ if args.logp:
 if args.tpsa:
     plt.figure()
     joypy.joyplot(tpsa_map, fade=True, x_range=(-25, 175))
-    plt.savefig(args.eval_name+'_tpsa.svg', format="svg")
-
-    pd.DataFrame.from_dict(data=tpsa_map, orient='index').to_csv(args.eval_name+"_tpsa.csv", header=False)
+    plt.savefig(args.eval_name+'_tpsa.png')
 
     x = []
     for k, v in tpsa_map.items():
@@ -268,9 +259,7 @@ if args.tpsa:
 if args.sascore:
     plt.figure()
     joypy.joyplot(sascore_map, fade=True, x_range=(-2, 11))
-    plt.savefig(args.eval_name+'_sascore.svg', format="svg")
-
-    pd.DataFrame.from_dict(data=sascore_map, orient='index').to_csv(args.eval_name+"_sascore.csv", header=False)
+    plt.savefig(args.eval_name+'_sascore.png')
 
     x = []
     for k, v in sascore_map.items():
@@ -289,7 +278,6 @@ for d in tqdm(data):
     if d['smiles'] not in set(dataset_smiles):
         novel_smiles.append(d['smiles'])
     if d['is_3d_valid']: num_3d_valid += 1
-
 
 print("VALIDITY : %d"%(len(pred_smiles)))
 print("DIVERSITY : %d"%(len(set(pred_smiles))))
