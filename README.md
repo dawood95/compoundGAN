@@ -19,6 +19,7 @@ git clone https://github.com/chopralab
 ```
 
 TODO: Are we adding any additional way to get the source code (build, pip, conda, etc?)
+****Probably need to add a requirements.txt****
 
 ## Scripts for Training and Sampling CoCoa Models
 
@@ -28,7 +29,7 @@ This script is used to train an Encoder/Decoder and CNF (Continous Normalizing F
 
 ```
 --data-file: The path to the data file containing the training dataset (Type: String, Required)
---log-root: (TODO:) Not really sure what this is for (Type: String, Default:'~/Experiments')
+--log-root: Directory to log training metrics and save checkpoint models (Type: String, Default:'~/Experiments')
 
 --batch-size: Batch size for model training (Type: Integer, Default: 256)
 --epoch: Number of training epochs (Type: Integer, Default: 100)
@@ -40,23 +41,23 @@ This script is used to train an Encoder/Decoder and CNF (Continous Normalizing F
 --latent-dim: Dimensionality of the VAE latent space (Type: Integer, Default: 256)
 
 --cnf-hidden-dims: Hidden Dimensionality of the CNF model (Type: List, Default: [256,256,256,256])
---cnf-train-context: (TODO:) Not sure what this is
---cnf-T: (TODO:) Not sure what this is
---cnf-train-T: (TODO:) Not sure what this is
+--cnf-train-context: Enabling Conditional CNF
+--cnf-T: End time hyperparameter for CNF ODE integral
+--cnf-train-T: Enable learning CNF ODE integral end time 
 
---alpha: Learning rate for CNF model training (I think???) (Type: Float, Default: 1e-3)
+--alpha: Hyperparameter to scale entropy and prior loss (Type: Float, Default: 1e-3)
 
---ode-solver: (TODO:) Not sure what this is
---ode-atol: (TODO:) Not sure what this is
---ode-rtol: (TODO:) Not sure what this is
---ode-use-adjoint: (TODO:) Not sure what this is
+--ode-solver: ODE solver from torchdiffeq
+--ode-atol: ODE solver error tolerance
+--ode-rtol: ODE solver error tolerance 
+--ode-use-adjoint: Use adjoint method for backprop through ODE solver
 
 --decoder-num-layers: Number of layers in the Decoder (Type: Integer, Default: 4)
 
 --pretrained: Path for pretrained model (Type: String, Default: '')
 --cuda: Flag for cuda usage for GPU acceleration (True if Flagged)
---track: (TODO:) Not sure what this is (True if Flagged)
---comment: (TODO:) Not sure what this is
+--track: Log trainng run metrics and save checkpoint models (True if Flagged)
+--comment: Comment string to keep track of experiment
 
 --seed: Seeding for random number generation (Type: Integer, Default: 0)
 --global-rank: Global process rank for current process (Type: Integer, No Default)
@@ -196,7 +197,7 @@ This is the script for statistical analysis calculation of sampled compounds. It
 
 #### `radam.py`
 
-TODO: I don't know what RAdam does ... 
+This script provides an implementation of the RAdam optimizer. Taken from https://github.com/LiyuanLucasLiu/RAdam
 
 #### `trainer.py`
 
